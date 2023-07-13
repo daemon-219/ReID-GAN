@@ -52,7 +52,7 @@ def get_data(name, data_dir):
 
 
 def get_train_loader(args, dataset, height, width, batch_size, workers,
-                     num_instances, iters, trainset=None, no_cam=False):
+                     num_instances, iters, with_pose=False, trainset=None, no_cam=False):
 
     normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
@@ -76,14 +76,17 @@ def get_train_loader(args, dataset, height, width, batch_size, workers,
             sampler = RandomMultipleGallerySampler(train_set, num_instances)
     else:
         sampler = None
+    
     train_loader = IterLoader(
-        DataLoader(Preprocessor(train_set, root=dataset.images_dir, transform=train_transformer),
+        DataLoader(Preprocessor(train_set, root=dataset.images_dir, pose_file=dataset.train_pose_dir, 
+                                height=height, width=width, with_pose=with_pose, transform=train_transformer,
+                                gan_transform=None, gan_transform_p=None),
                    batch_size=batch_size, num_workers=workers, sampler=sampler,
                    shuffle=not rmgs_flag, pin_memory=True, drop_last=True), length=iters)
     return train_loader
 
 
-def get_test_loader(dataset, height, width, batch_size, workers, testset=None):
+def get_test_loader(dataset, height, width, batch_size, workers, with_pose=False, testset=None):
 
     normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
@@ -98,7 +101,9 @@ def get_test_loader(dataset, height, width, batch_size, workers, testset=None):
         testset = list(set(dataset.query) | set(dataset.gallery))
 
     test_loader = DataLoader(
-        Preprocessor(testset, root=dataset.images_dir, transform=test_transformer),
+        Preprocessor(testset, root=dataset.images_dir, pose_file=dataset.test_pose_dir, 
+                     height=height, width=width, with_pose=with_pose, transform=test_transformer,
+                     gan_transform=None, gan_transform_p=None),
         batch_size=batch_size, num_workers=workers,
         shuffle=False, pin_memory=True)
 
@@ -216,9 +221,13 @@ def main_worker(args):
 
         train_loader = get_train_loader(args, dataset, args.height, args.width,
                                         args.batch_size, args.workers, args.num_instances, iters,
-                                        trainset=pseudo_labeled_dataset, no_cam=args.no_cam)
+                                        with_pose=args.with_pose, trainset=pseudo_labeled_dataset, no_cam=args.no_cam)
 
         train_loader.new_epoch()
+
+        """
+        TODO: check sampler, trainer
+        """
 
         GAN_model.set_input(data)
         GAN_model.optimize_parameters()
@@ -299,6 +308,8 @@ if __name__ == '__main__':
     parser.add_argument('--eval-step', type=int, default=10)
     parser.add_argument('--temp', type=float, default=0.05,
                         help="temperature for scaling contrastive loss")
+    parser.add_argument('-wp', '--with_pose', type=bool, default=False)
+    
     # path
     working_dir = osp.dirname(osp.abspath(__file__))
     parser.add_argument('--data-dir', type=str, metavar='PATH',

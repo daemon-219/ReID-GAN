@@ -33,6 +33,10 @@ class ClusterContrastTrainer(object):
             # loss = self.memory(f_out, indexes)
             loss = self.memory(f_out, labels)
 
+            """
+            TODO: add gan loss and optimize step here
+            """
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()

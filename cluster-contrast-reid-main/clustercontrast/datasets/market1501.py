@@ -25,6 +25,9 @@ class Market1501(BaseImageDataset):
         self.query_dir = osp.join(self.dataset_dir, 'query')
         self.gallery_dir = osp.join(self.dataset_dir, 'bounding_box_test')
 
+        self.train_pose_dir = osp.join(self.dataset_dir, 'market-annotation-train.csv')
+        self.test_pose_dir = osp.join(self.dataset_dir, 'market-annotation-test.csv')
+
         self._check_before_run()
 
         train = self._process_dir(self.train_dir, relabel=True)
