@@ -22,7 +22,7 @@ from fdgan.model import FDGANModel
 from clustercontrast import datasets
 from clustercontrast import models
 from clustercontrast.models.cm import ClusterMemory
-from clustercontrast.trainers import ClusterContrastTrainer
+from clustercontrast.trainers import ClusterContrastTrainer, ClusterContrastWithGANTrainer
 from clustercontrast.evaluators import Evaluator, extract_features
 from clustercontrast.utils.data import IterLoader
 from clustercontrast.utils.data import transforms as T
@@ -162,7 +162,10 @@ def main_worker(args):
 
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
     # Trainer
-    trainer = ClusterContrastTrainer(ReID_model)
+    if args.with_gan:
+        trainer = ClusterContrastWithGANTrainer(ReID_model)
+    else: 
+        trainer = ClusterContrastTrainer(ReID_model)
 
     for epoch in range(args.epochs):
         with torch.no_grad():
@@ -221,7 +224,7 @@ def main_worker(args):
 
         train_loader = get_train_loader(args, dataset, args.height, args.width,
                                         args.batch_size, args.workers, args.num_instances, iters,
-                                        with_pose=args.with_pose, trainset=pseudo_labeled_dataset, no_cam=args.no_cam)
+                                        with_pose=args.with_gan, trainset=pseudo_labeled_dataset, no_cam=args.no_cam)
 
         train_loader.new_epoch()
 
@@ -229,8 +232,8 @@ def main_worker(args):
         TODO: check sampler, trainer
         """
 
-        GAN_model.set_input(data)
-        GAN_model.optimize_parameters()
+        # GAN_model.set_input(data)
+        # GAN_model.optimize_parameters()
 
         # if total_steps % opt.display_freq == 0:
         #     save_result = total_steps % opt.update_html_freq == 0
@@ -308,7 +311,7 @@ if __name__ == '__main__':
     parser.add_argument('--eval-step', type=int, default=10)
     parser.add_argument('--temp', type=float, default=0.05,
                         help="temperature for scaling contrastive loss")
-    parser.add_argument('-wp', '--with_pose', type=bool, default=False)
+    parser.add_argument('-gan', '--with_gan', type=bool, default=False)
     
     # path
     working_dir = osp.dirname(osp.abspath(__file__))
