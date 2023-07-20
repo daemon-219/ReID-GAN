@@ -106,6 +106,10 @@ class DPTNModel(BaseModel):
     def forward(self):
         # Encode Inputs
         self.fake_image_t, self.fake_image_s = self.net_G(self.source_image, self.source_pose, self.target_pose)
+            
+    def synthesize(self):
+        # Encode Inputs
+        self.fake_image_t, self.fake_image_s = self.net_G(self.source_image, self.source_pose, self.target_pose)
         return self.fake_image_t, self.fake_image_s
 
     def test(self):
@@ -154,13 +158,17 @@ class DPTNModel(BaseModel):
 
         return loss_app_gen, loss_ad_gen, loss_style_gen, loss_content_gen
 
-    def backward_G(self):
+    def backward_G(self, gm_loss=None):
         base_function._unfreeze(self.net_D)
 
         self.loss_app_gen_t, self.loss_ad_gen_t, self.loss_style_gen_t, self.loss_content_gen_t = self.backward_G_basic(self.fake_image_t, self.target_image, use_d = True)
 
         self.loss_app_gen_s, self.loss_ad_gen_s, self.loss_style_gen_s, self.loss_content_gen_s = self.backward_G_basic(self.fake_image_s, self.source_image, use_d = False)
         G_loss = self.t_s_ratio*(self.loss_app_gen_t+self.loss_style_gen_t+self.loss_content_gen_t) + (1-self.t_s_ratio)*(self.loss_app_gen_s+self.loss_style_gen_s+self.loss_content_gen_s)+self.loss_ad_gen_t
+        
+        if gm_loss is not None:
+            G_loss = G_loss + self.opt.lambda_gm * gm_loss
+            
         G_loss.backward()
 
     def optimize_parameters(self):
@@ -174,12 +182,12 @@ class DPTNModel(BaseModel):
         self.backward_G()
         self.optimizer_G.step()
 
-    def optimize_parameters_generated(self):
+    def optimize_parameters_generated(self, gm_loss=None):
         self.optimizer_D.zero_grad()
         self.backward_D()
         self.optimizer_D.step()
 
         self.optimizer_G.zero_grad()
-        self.backward_G()
+        self.backward_G(gm_loss)
         self.optimizer_G.step()
 

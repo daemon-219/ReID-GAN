@@ -50,4 +50,8 @@ class TrainOptions(BaseOptions):
                             help="temperature for scaling contrastive loss")
         self.parser.add_argument('--with_gan', action="store_true")
 
+        '''gradient matching'''
+        self.GM_group.add_argument('--lambda_gm', type=float, default=0.005, help='weight for generation loss')
+        self.GM_group.add_argument('--dis_metric', choices=['ours', 'mse', 'cos'], type=str, default='ours', help='weight for generation loss')
+
         self.isTrain = True

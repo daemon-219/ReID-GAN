@@ -15,6 +15,7 @@ class BaseOptions():
         # experiment specifics
         self.DPTN_group = self.parser.add_argument_group(title='DPTN GAN options')
         self.CC_group = self.parser.add_argument_group(title='CC ReID options')
+        self.GM_group = self.parser.add_argument_group(title='Gradient Matching options')
 
         self.parser.add_argument('--name', type=str, default='DPTN_CC_market', help='name of the experiment. It decides where to store samples and models')        
         # self.parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
