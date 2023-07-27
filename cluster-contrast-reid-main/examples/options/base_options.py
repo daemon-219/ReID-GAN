@@ -15,11 +15,23 @@ class BaseOptions():
         # experiment specifics
         self.DPTN_group = self.parser.add_argument_group(title='DPTN GAN options')
         self.CC_group = self.parser.add_argument_group(title='CC ReID options')
-        self.GM_group = self.parser.add_argument_group(title='Gradient Matching options')
+        self.AL_group = self.parser.add_argument_group(title='Gradient Matching options')
 
-        self.parser.add_argument('--name', type=str, default='DPTN_CC_market', help='name of the experiment. It decides where to store samples and models')        
+        # path
+        self.parser.add_argument('--name', type=str, default='DPTN_CC_market_postive', help='name of the experiment. It decides where to store samples and models')  
+        working_dir = './examples'
+        self.parser.add_argument('--data-dir', type=str, metavar='PATH',
+                            default=osp.join(working_dir, 'data'))
+        self.parser.add_argument('--logs-dir', type=str, metavar='PATH',
+                            default=osp.join(working_dir, 'cl_logs'))
+        self.DPTN_group.add_argument('--checkpoints_dir', type=str, metavar='PATH',
+                            default=osp.join(working_dir, 'cl_logs/DPTN'), help='models are saved here')        
+        self.DPTN_group.add_argument('--gan_train', action='store_true', help='if specified, train gan and use contrastive learning')
+        self.CC_group.add_argument('--pooling-type', type=str, default='gem')
+        self.CC_group.add_argument('--use-hard', action="store_true")
+        self.parser.add_argument('--no-cam', action="store_true")
+      
         # self.parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
-        self.DPTN_group.add_argument('--checkpoints_dir', type=str, default='./examples/gan_logs/DPTN', help='models are saved here')
         self.DPTN_group.add_argument('--model', type=str, default='DPTN', help='which model to use')
         self.DPTN_group.add_argument('--norm', type=str, default='instance', help='instance normalization or batch normalization')        
         self.DPTN_group.add_argument('--use_dropout', action='store_true', help='use dropout for the generator')
@@ -97,16 +109,6 @@ class BaseOptions():
         self.CC_group.add_argument('--momentum', type=float, default=0.2,
                             help="update momentum for the hybrid memory")
         
-        # path
-        working_dir = './examples'
-        self.parser.add_argument('--data-dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'data'))
-        self.parser.add_argument('--logs-dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'gan_logs'))
-        self.CC_group.add_argument('--pooling-type', type=str, default='gem')
-        self.CC_group.add_argument('--use-hard', action="store_true")
-        self.parser.add_argument('--no-cam', action="store_true")
-        
         self.initialized = True
 
     def parse(self, save=True):
@@ -115,13 +117,9 @@ class BaseOptions():
         opt, _ = self.parser.parse_known_args()
         # modify the options for different models
         model_option_set = gan_models.get_option_setter(opt.model)
-        self.parser = model_option_set(self.parser, self.isTrain)
-
-        # data_option_set = data.get_option_setter(opt.dataset_mode)
-        # self.parser = data_option_set(self.parser, self.isTrain)
+        self.parser = model_option_set(self.parser, opt.gan_train)
 
         self.opt = self.parser.parse_args()
-        self.opt.isTrain = self.isTrain   # train or test
 
         if torch.cuda.is_available():
             self.opt.device = torch.device("cuda")
@@ -151,8 +149,8 @@ class BaseOptions():
         expr_dir = osp.join(self.opt.checkpoints_dir, self.opt.name)
         if not osp.exists(expr_dir):
             os.makedirs(expr_dir)
-        if save and not (self.isTrain and self.opt.continue_train):
-            name = 'train' if self.isTrain else 'test'
+        if save and not (self.opt.gan_train and self.opt.continue_train):
+            name = 'train' if self.opt.gan_train else 'test'
             file_name = osp.join(expr_dir, name+'_opt.txt')
             with open(file_name, 'wt') as opt_file:
                 opt_file.write('------------ Options -------------\n')

@@ -14,9 +14,10 @@ class BaseModel():
 
     def __init__(self, opt):
         self.opt = opt
-        self.isTrain = opt.isTrain
+        self.gan_train = opt.gan_train
         self.Tensor = torch.cuda.FloatTensor
         self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
+        self.load_pretrain = opt.load_pretrain
 
     def set_input(self, input):
         self.input = input
@@ -100,7 +101,7 @@ class BaseModel():
         for name in self.model_names:
             if isinstance(name, str):
                 filename = '%s_net_%s.pth' % (which_epoch, name)
-                path = os.path.join(self.save_dir, filename)
+                path = os.path.join(self.save_dir if self.load_pretrain == "" else self.load_pretrain, filename)
                 net = getattr(self, 'net_' + name)
                 try:
                     '''
@@ -115,7 +116,7 @@ class BaseModel():
                     net.load_state_dict(new_dict)
                     '''
                     net.load_state_dict(torch.load(path))
-                    print('load %s from %s' % (name, filename))
+                    print('load %s from %s' % (name, path))
                 except FileNotFoundError:
                     print('do not find checkpoint for network %s'%name)
                     continue
@@ -149,7 +150,7 @@ class BaseModel():
                         net.load_state_dict(model_dict)
                 if torch.cuda.is_available():
                     net.cuda()
-                if not self.isTrain:
+                if not self.gan_train:
                     net.eval()
 
     def update_learning_rate(self, epoch=None):
@@ -160,7 +161,7 @@ class BaseModel():
             else:
                 scheduler.step(epoch)
         lr = self.optimizers[0].param_groups[0]['lr']
-        print('learning rate=%.7f' % lr)
+        # print('learning rate=%.7f' % lr)
 
     def get_current_learning_rate(self):
         lr_G = self.optimizers[0].param_groups[0]['lr']

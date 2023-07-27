@@ -14,4 +14,3 @@ class TestOptions(BaseOptions):
         self.parser.add_argument("--export_onnx", type=str, help="export ONNX model to a given file")
         self.parser.add_argument("--engine", type=str, help="run serialized TRT engine")
         self.parser.add_argument("--onnx", type=str, help="run ONNX model via TRT")
-        self.isTrain = False

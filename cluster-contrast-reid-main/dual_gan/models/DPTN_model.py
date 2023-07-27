@@ -54,14 +54,14 @@ class DPTNModel(BaseModel):
                                        use_spect=opt.use_spect_g, use_coord=opt.use_coord, output_nc=3, num_blocks=3, affine=True, nhead=opt.nhead, num_CABs=opt.num_CABs, num_TTBs=opt.num_TTBs)
 
         # Discriminator network
-        if self.isTrain:
+        if self.gan_train:
             self.model_names = ['G', 'D']
             self.net_D = networks.define_D(opt, ndf=32, img_f=128, layers=opt.dis_layers, use_spect=opt.use_spect_d)
 
         if self.opt.verbose:
                 print('---------- Networks initialized -------------')
         # set loss functions and optimizers
-        if self.isTrain:
+        if self.gan_train:
             if opt.pool_size > 0 and (len(self.gpu_ids)) > 1:
                 raise NotImplementedError("Fake Pool Not Implemented for MultiGPU")
             #self.fake_pool = ImagePool(opt.pool_size)
@@ -86,8 +86,12 @@ class DPTNModel(BaseModel):
         else:
             self.net_G.eval()
 
-        if not self.isTrain or opt.continue_train:
-            print('model resumed from latest')
+        # if not self.gan_train or opt.continue_train:
+        #     print('model resumed from latest')
+        #     self.load_networks(opt.which_epoch)
+        
+        if self.load_pretrain != "" or opt.continue_train:
+            print('model loaded from pretrained')
             self.load_networks(opt.which_epoch)
 
     def set_input(self, input):
@@ -158,7 +162,7 @@ class DPTNModel(BaseModel):
 
         return loss_app_gen, loss_ad_gen, loss_style_gen, loss_content_gen
 
-    def backward_G(self, gm_loss=None):
+    def backward_G(self, retain_graph=False):
         base_function._unfreeze(self.net_D)
 
         self.loss_app_gen_t, self.loss_ad_gen_t, self.loss_style_gen_t, self.loss_content_gen_t = self.backward_G_basic(self.fake_image_t, self.target_image, use_d = True)
@@ -166,10 +170,10 @@ class DPTNModel(BaseModel):
         self.loss_app_gen_s, self.loss_ad_gen_s, self.loss_style_gen_s, self.loss_content_gen_s = self.backward_G_basic(self.fake_image_s, self.source_image, use_d = False)
         G_loss = self.t_s_ratio*(self.loss_app_gen_t+self.loss_style_gen_t+self.loss_content_gen_t) + (1-self.t_s_ratio)*(self.loss_app_gen_s+self.loss_style_gen_s+self.loss_content_gen_s)+self.loss_ad_gen_t
         
-        if gm_loss is not None:
-            G_loss = G_loss + self.opt.lambda_gm * gm_loss
-            
-        G_loss.backward()
+        if retain_graph:    
+            G_loss.backward(retain_graph=True)
+        else:
+            G_loss.backward()
 
     def optimize_parameters(self):
         self.forward()
@@ -182,12 +186,12 @@ class DPTNModel(BaseModel):
         self.backward_G()
         self.optimizer_G.step()
 
-    def optimize_parameters_generated(self, gm_loss=None):
+    def optimize_parameters_generated(self):
         self.optimizer_D.zero_grad()
         self.backward_D()
         self.optimizer_D.step()
 
         self.optimizer_G.zero_grad()
-        self.backward_G(gm_loss)
+        self.backward_G()
         self.optimizer_G.step()
 

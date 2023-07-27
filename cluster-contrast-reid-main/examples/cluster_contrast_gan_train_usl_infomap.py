@@ -63,7 +63,23 @@ def get_train_loader(opt, dataset, height, width, batch_size, workers,
 
     normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
+    
+    if with_pose:
+        # basic size transform, put data augmentations in trainer 
+        # (height, weight): (256, 128)
+        # train_transformer = T.Compose([
+        #     T.Resize((height, width), interpolation=InterpolationMode.BICUBIC),
+        #     T.ToTensor(),
+        #     normalizer,
+        # ])
 
+        # prepare for transformation
+        # opt.loadSize: (128, 64)
+        DPTN_transform = T.Compose([
+            T.ToTensor(),
+            T.Normalize((0.5, 0.5, 0.5),(0.5, 0.5, 0.5))
+        ])
+        
     train_transformer = T.Compose([
         T.Resize((height, width), interpolation=InterpolationMode.BICUBIC),
         T.RandomHorizontalFlip(p=0.5),
@@ -72,13 +88,7 @@ def get_train_loader(opt, dataset, height, width, batch_size, workers,
         T.ToTensor(),
         normalizer,
         T.RandomErasing(probability=0.5, mean=[0.485, 0.456, 0.406])
-    ])
-
-    # prepare for transformation
-    DPTN_transform = T.Compose([
-        T.ToTensor(),
-        normalizer
-    ])
+    ])    
 
     train_set = sorted(dataset.train) if trainset is None else sorted(trainset)
     rmgs_flag = num_instances > 0
@@ -92,7 +102,7 @@ def get_train_loader(opt, dataset, height, width, batch_size, workers,
     
     train_loader = IterLoader(
         DataLoader(Preprocessor(train_set, root=dataset.images_dir, pose_file=dataset.train_pose_dir, 
-                                with_pose=with_pose, load_size=(height, width),
+                                with_pose=with_pose, load_size=opt.loadSize,
                                 transform=train_transformer, DPTN_transform=DPTN_transform),
                    batch_size=batch_size, num_workers=workers, sampler=sampler,
                    shuffle=not rmgs_flag, pin_memory=True, drop_last=True), length=iters)
@@ -124,7 +134,7 @@ def get_test_loader(dataset, height, width, batch_size, workers, with_pose=False
 
 def create_model(opt):
     model = models.create(opt.arch, num_features=opt.features, norm=True, dropout=opt.dropout,
-                          num_classes=0, pooling_type=opt.pooling_type)
+                          num_classes=0, pooling_type=opt.pooling_type, need_predictor=opt.gan_train)
     # use CUDA
     model.cuda()
     model = nn.DataParallel(model)
@@ -160,11 +170,11 @@ def main_worker(opt):
     print("==> Load unlabeled dataset")
     dataset = get_data(opt.dataset, opt.data_dir)
     test_loader = get_test_loader(dataset, opt.height, opt.width, opt.batch_size, opt.workers)
-
+    
+    # Create model
     DPTN_model = None
     visualizer = None
     if opt.with_gan:
-        # Create model
         # '''fdgan'''
         # opt = Options().parse()
         # GAN_model = FDGANModel(opt)
@@ -174,14 +184,14 @@ def main_worker(opt):
         iter_path = osp.join(opt.checkpoints_dir, opt.name, 'iter.txt')
         if opt.continue_train:
             try:
-                start_epoch, epoch_iter = np.loadtxt(iter_path , delimiter=',', dtype=int)
+                restart_epoch, epoch_iter = np.loadtxt(iter_path , delimiter=',', dtype=int)
             except:
-                start_epoch, epoch_iter = 1, 0
-            print('Resuming from epoch %d at iteration %d' % (start_epoch, epoch_iter))        
+                restart_epoch, epoch_iter = 1, 0
+            print('Resuming from epoch %d at iteration %d' % (restart_epoch, epoch_iter))        
         else:    
-            start_epoch, epoch_iter = 1, 0
+            restart_epoch, epoch_iter = 1, 0
 
-        opt.iter_start = start_epoch
+        opt.iter_start = restart_epoch
     
         if opt.debug:
             opt.display_freq = 1
@@ -210,11 +220,16 @@ def main_worker(opt):
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=opt.step_size, gamma=0.1)
     # Trainer
     if opt.with_gan:
-        trainer = ClusterContrastWithGANTrainer(ReID_model, DPTN_model, writer)
+        trainer = ClusterContrastWithGANTrainer(encoder=ReID_model, GAN=DPTN_model, writer=writer, T=opt.cl_temp)
     else: 
         trainer = ClusterContrastTrainer(ReID_model)
 
     acc_iters = 0
+
+    if opt.continue_train:
+        model_path = osp.join(opt.logs_dir, "checkpoint.pth.tar")
+        print('Loading ReID model from epoch %s' % (model_path))
+        ReID_model.load_state_dict(torch.load(model_path)['state_dict'])
 
     for epoch in range(opt.epochs):
         with torch.no_grad():
@@ -280,11 +295,14 @@ def main_worker(opt):
         """
         TODO: check data preprocessor, trainer
         """
-
-        trainer.train(epoch, train_loader, optimizer,
-                      dis_metric=opt.dis_metric , print_freq=opt.print_freq, 
-                      train_iters=len(train_loader), acc_iters=acc_iters)
-        
+        if opt.gan_train:
+            trainer.train_all(epoch, train_loader, optimizer,
+                        dis_metric=opt.dis_metric, print_freq=opt.print_freq, 
+                        train_iters=len(train_loader), acc_iters=acc_iters)
+        else:
+            trainer.train(epoch, train_loader, optimizer, print_freq=opt.print_freq, 
+                        train_iters=len(train_loader), acc_iters=acc_iters)
+            
         acc_iters += len(train_loader)
 
         if (epoch + 1) % opt.eval_step == 0 or (epoch == opt.epochs - 1):
@@ -306,22 +324,24 @@ def main_worker(opt):
                   format(epoch, mAP, best_mAP, ' *' if is_best else ''))
 
         if opt.with_gan: 
-            lr_G, lr_D = DPTN_model.get_current_learning_rate()
-            print('Epoch: [{}]\t'
-                        'LR/reid {:.3f}\t'
-                        'LR/G: {:.3f}\t'
-                        'LR/D: {:.3f}\n'
-                        .format(epoch,
-                                optimizer.state_dict()['param_groups'][0]['lr'],
-                                lr_G,
-                                lr_D))
+            if opt.gan_train:
+                lr_G, lr_D = DPTN_model.get_current_learning_rate()
+                print('Epoch: [{}]\t'
+                            'LR/reid {:.7f}\t'
+                            'LR/G: {:.7f}\t'
+                            'LR/D: {:.7f}\n'
+                            .format(epoch,
+                                    optimizer.state_dict()['param_groups'][0]['lr'],
+                                    lr_G,
+                                    lr_D))
+                DPTN_model.update_learning_rate()
             
-            # visualize gan results 
-            visualizer.display_current_results(DPTN_model.get_current_visuals(), epoch)
-            if hasattr(DPTN_model, 'distribution'):
-                visualizer.plot_current_distribution(DPTN_model.get_current_dis())
+            if (epoch + 1) % opt.vis_step == 0 or (epoch == opt.epochs - 1):
+                # visualize gan results 
+                visualizer.display_current_results(DPTN_model.get_current_visuals(), epoch)
+                if hasattr(DPTN_model, 'distribution'):
+                    visualizer.plot_current_distribution(DPTN_model.get_current_dis())
 
-            DPTN_model.update_learning_rate()
         lr_scheduler.step()
         
 

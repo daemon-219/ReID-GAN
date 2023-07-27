@@ -21,11 +21,13 @@ class ResNet(nn.Module):
     }
 
     def __init__(self, depth, pretrained=True, cut_at_pooling=False,
-                 num_features=0, norm=False, dropout=0, num_classes=0, pooling_type='avg'):
+                 num_features=0, norm=False, dropout=0, num_classes=0, pooling_type='avg',
+                 need_predictor=False):
         super(ResNet, self).__init__()
         self.pretrained = pretrained
         self.depth = depth
         self.cut_at_pooling = cut_at_pooling
+        self.need_predictor = need_predictor
         # Construct base (pretrained) resnet
         if depth not in ResNet.__factory:
             raise KeyError("Unsupported depth:", depth)
@@ -63,6 +65,8 @@ class ResNet(nn.Module):
             if self.num_classes > 0:
                 self.classifier = nn.Linear(self.num_features, self.num_classes, bias=False)
                 init.normal_(self.classifier.weight, std=0.001)
+            if self.need_predictor:
+                self._build_predictor_mlps(self.num_features, 2*self.num_features)
         init.constant_(self.feat_bn.weight, 1)
         init.constant_(self.feat_bn.bias, 0)
 
@@ -119,6 +123,28 @@ class ResNet(nn.Module):
                 init.normal_(m.weight, std=0.001)
                 if m.bias is not None:
                     init.constant_(m.bias, 0)
+
+    def _build_mlp(self, num_layers, input_dim, mlp_dim, output_dim, last_bn=True):
+        mlp = []
+        for l in range(num_layers):
+            dim1 = input_dim if l == 0 else mlp_dim
+            dim2 = output_dim if l == num_layers - 1 else mlp_dim
+
+            mlp.append(nn.Linear(dim1, dim2, bias=False))
+
+            if l < num_layers - 1:
+                mlp.append(nn.BatchNorm1d(dim2))
+                mlp.append(nn.ReLU(inplace=True))
+            elif last_bn:
+                # follow SimCLR's design: https://github.com/google-research/simclr/blob/master/model_util.py#L157
+                # for simplicity, we further removed gamma in BN
+                mlp.append(nn.BatchNorm1d(dim2, affine=False))
+
+        return nn.Sequential(*mlp)
+
+    def _build_predictor_mlps(self, dim, mlp_dim):
+        # predictor
+        self.predictor = self._build_mlp(2, dim, mlp_dim, dim, False)
 
 
 def resnet18(**kwargs):

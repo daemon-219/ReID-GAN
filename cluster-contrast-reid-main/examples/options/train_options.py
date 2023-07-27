@@ -13,7 +13,7 @@ class TrainOptions(BaseOptions):
         self.DPTN_group.add_argument('--debug', action='store_true', help='only do one epoch and displays at each iteration')
 
         # for training
-        self.DPTN_group.add_argument('--continue_train', action='store_true', help='continue training: load the latest model')
+        self.parser.add_argument('--continue_train', action='store_true', help='continue training: load the latest model')
         self.DPTN_group.add_argument('--load_pretrain', type=str, default='', help='load the pretrained model from the specified location')
         self.DPTN_group.add_argument('--which_epoch', type=str, default='latest', help='which epoch to load? set to latest to use latest cached model')
         # self.DPTN_group.add_argument('--phase', type=str, default='train', help='train, val, test, etc')
@@ -45,13 +45,13 @@ class TrainOptions(BaseOptions):
         # training configs
         self.parser.add_argument('--seed', type=int, default=1)
         self.parser.add_argument('--print-freq', type=int, default=10)
+        self.DPTN_group.add_argument('--vis-step', type=int, default=2)
         self.CC_group.add_argument('--eval-step', type=int, default=10)
         self.CC_group.add_argument('--temp', type=float, default=0.05,
                             help="temperature for scaling contrastive loss")
         self.parser.add_argument('--with_gan', action="store_true")
 
-        '''gradient matching'''
-        self.GM_group.add_argument('--lambda_gm', type=float, default=0.005, help='weight for generation loss')
-        self.GM_group.add_argument('--dis_metric', choices=['ours', 'mse', 'cos'], type=str, default='ours', help='weight for generation loss')
-
-        self.isTrain = True
+        '''additional losses'''
+        self.AL_group.add_argument('--lambda_nl', type=float, default=1.0, help='weight of following loss for generator')
+        self.AL_group.add_argument('--dis_metric', choices=['ours', 'mse', 'cos'], type=str, default='ours', help='loss types of gradient matching')
+        self.AL_group.add_argument('--cl_temp', type=float, default=1.0, help='temperature of contrastive learning')

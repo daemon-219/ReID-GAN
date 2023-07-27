@@ -143,10 +143,11 @@ class Preprocessor(Dataset):
         # Pt = torch.flip(Ps, [2])
 
         Xs = F.resize(Xs, self.load_size)
+        Xt = F.resize(Xt, self.load_size)
+
         Ps = self.obtain_bone(Xs_name)
         Xs = self.trans(Xs)
         
-        Xt = F.resize(Xt, self.load_size)
         Pt = self.obtain_bone(Xt_name)
         Xt = self.trans(Xt)
 

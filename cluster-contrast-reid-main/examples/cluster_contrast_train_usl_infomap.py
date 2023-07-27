@@ -14,6 +14,7 @@ from torch import nn
 from torch.backends import cudnn
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+from torchvision.transforms import InterpolationMode
 
 from clustercontrast import datasets
 from clustercontrast import models
@@ -54,7 +55,7 @@ def get_train_loader(args, dataset, height, width, batch_size, workers,
                              std=[0.229, 0.224, 0.225])
 
     train_transformer = T.Compose([
-        T.Resize((height, width), interpolation=3),
+        T.Resize((height, width), interpolation=InterpolationMode.BICUBIC),
         T.RandomHorizontalFlip(p=0.5),
         T.Pad(10),
         T.RandomCrop((height, width)),
@@ -85,7 +86,7 @@ def get_test_loader(dataset, height, width, batch_size, workers, testset=None):
                              std=[0.229, 0.224, 0.225])
 
     test_transformer = T.Compose([
-        T.Resize((height, width), interpolation=3),
+        T.Resize((height, width), interpolation=InterpolationMode.BICUBIC),
         T.ToTensor(),
         normalizer
     ])
