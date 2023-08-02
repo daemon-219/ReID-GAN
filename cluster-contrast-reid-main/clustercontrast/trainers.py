@@ -74,6 +74,7 @@ class ClusterContrastWithGANTrainer(object):
         self.memory = memory
         self.T = T
         self.writer = writer
+        self.triplet_loss = nn.TripletMarginLoss(margin=1.0, p=2)
 
     def train_all(self, epoch, data_loader, optimizer, dis_metric='ours', print_freq=10, train_iters=400, acc_iters=0):
         print("train both gan and reid")
@@ -102,7 +103,8 @@ class ClusterContrastWithGANTrainer(object):
             loss_ori = self.memory(f_out, labels)
 
             self.gan.set_input(inputs[1])
-            fake_image_t, fake_image_s = self.gan.synthesize()
+            fake_image_t, fake_image_s = self.gan.synthesize(gan_tain=True)
+
             """
             TODO: do transform here
             """
@@ -226,23 +228,47 @@ class ClusterContrastWithGANTrainer(object):
             # process inputs
             reid_inputs, labels, indexes = self._parse_data(inputs[0])
 
-            self.gan.set_input(inputs[1])
-            fake_image_t, _ = self.gan.synthesize()
+            # self.gan.set_input(inputs[1])
+            # fake_image_t, _ = self.gan.synthesize()
+
+            # one sythetic sample for each id
+            b_id = torch.arange(0, reid_inputs.shape[0], 16)
+
+            self.gan.set_input(inputs[1], b_id)
+            fake_image_n = self.gan.synthesize_pair()
+            # print(fake_image_n.shape)
+
             """
             TODO: do transform here
             """
-            ex_inputs = my_resize(fake_image_t, (reid_inputs.shape[2], reid_inputs.shape[3]))
+            ex_inputs = my_resize(fake_image_n, (reid_inputs.shape[2], reid_inputs.shape[3]))
+            ex_labels = torch.index_select(labels, 0, b_id.cuda())
+            # p_inputs = my_resize(inputs[1]["Xs"], (reid_inputs.shape[2], reid_inputs.shape[3]))
+            # n_inputs = my_resize(fake_image_n, (reid_inputs.shape[2], reid_inputs.shape[3]))
 
             # fake target as extended inputs
             new_inputs = torch.cat([reid_inputs, ex_inputs], dim=0)
-            labels = labels.repeat(2)
+            # labels = labels.repeat(2) # postive
+            labels = torch.cat([labels, ex_labels], dim=0) # extended
 
             # forward
             f_out = self._forward(new_inputs)
+
+            """
+            TODO: triplet loss
+            """
+            # f_out = self._forward(reid_inputs)
+            # with torch.no_grad():
+            #     f_p = self._forward(p_inputs)
+            #     f_n = self._forward(n_inputs)
+
+            # loss_tri = self.triplet_loss(f_out, f_p, f_n)
+            # loss = loss_tri + self.memory(f_out, labels)
+
             # print("f_out shape: {}".format(f_out.shape))
             # compute loss with the hybrid memory
-            # loss = self.memory(f_out, indexes)
             loss = self.memory(f_out, labels)
+            
 
             optimizer.zero_grad()
             loss.backward()
@@ -266,10 +292,13 @@ class ClusterContrastWithGANTrainer(object):
                       'Time {:.3f} ({:.3f})\t'
                       'Data {:.3f} ({:.3f})\t'
                       'Loss {:.3f} ({:.3f})\n'
+                    #   'Loss Triplet {:.3f}\n'
                       .format(epoch, i + 1, len(data_loader),
                               batch_time.val, batch_time.avg,
                               data_time.val, data_time.avg,
-                              losses.val, losses.avg))
+                              losses.val, losses.avg
+                            #   loss_tri.item()
+                              ))
 
     def _parse_data(self, inputs):
         imgs, _, pids, _, indexes = inputs

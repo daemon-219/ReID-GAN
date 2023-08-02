@@ -338,6 +338,7 @@ def main_worker(opt):
             
             if (epoch + 1) % opt.vis_step == 0 or (epoch == opt.epochs - 1):
                 # visualize gan results 
+                DPTN_model.visual_names = ['source_image', 'fake_image_n']
                 visualizer.display_current_results(DPTN_model.get_current_visuals(), epoch)
                 if hasattr(DPTN_model, 'distribution'):
                     visualizer.plot_current_distribution(DPTN_model.get_current_dis())

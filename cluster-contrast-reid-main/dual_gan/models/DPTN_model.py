@@ -94,10 +94,15 @@ class DPTNModel(BaseModel):
             print('model loaded from pretrained')
             self.load_networks(opt.which_epoch)
 
-    def set_input(self, input):
+    def set_input(self, input, b_id=None):
         self.input = input
-        source_image, source_pose = input['Xs'], input['Ps']
-        target_image, target_pose = input['Xt'], input['Pt']
+        if b_id is not None:
+            # get input from b_id for each group
+            source_image, source_pose = torch.index_select(input['Xs'], 0, b_id), torch.index_select(input['Ps'], 0, b_id)
+            target_image, target_pose = torch.index_select(input['Xt'], 0, b_id), torch.index_select(input['Pt'], 0, b_id)
+        else:
+            source_image, source_pose = input['Xs'], input['Ps']
+            target_image, target_pose = input['Xt'], input['Pt']
         self.source_image = source_image.cuda()
         self.source_pose = source_pose.cuda()
         self.target_image = target_image.cuda()
@@ -111,10 +116,19 @@ class DPTNModel(BaseModel):
         # Encode Inputs
         self.fake_image_t, self.fake_image_s = self.net_G(self.source_image, self.source_pose, self.target_pose)
             
-    def synthesize(self):
+    def synthesize(self, gan_tain=False):
         # Encode Inputs
-        self.fake_image_t, self.fake_image_s = self.net_G(self.source_image, self.source_pose, self.target_pose)
-        return self.fake_image_t, self.fake_image_s
+        self.fake_image_t, self.fake_image_s = self.net_G(self.source_image, self.source_pose, self.target_pose, gan_tain)
+        return self.fake_image_t, self.fake_image_s    
+    
+    def synthesize_pair(self):
+        # Encode Inputs
+        """
+        TODO: synthesize negative samples
+        """
+        # self.fake_image_p, _ = self.net_G(self.source_image, self.source_pose, torch.flip(self.target_pose, dims=[0]), False)
+        self.fake_image_n, _ = self.net_G(torch.flip(self.source_image, dims=[0]), torch.flip(self.source_pose, dims=[0]), self.target_pose, False)
+        return self.fake_image_n
 
     def test(self):
         """Forward function used in test time"""

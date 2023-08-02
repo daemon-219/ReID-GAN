@@ -18,14 +18,14 @@ class BaseOptions():
         self.AL_group = self.parser.add_argument_group(title='Gradient Matching options')
 
         # path
-        self.parser.add_argument('--name', type=str, default='DPTN_CC_market_postive', help='name of the experiment. It decides where to store samples and models')  
+        self.parser.add_argument('--name', type=str, default='DPTN_CC_market_neg', help='name of the experiment. It decides where to store samples and models')  
         working_dir = './examples'
         self.parser.add_argument('--data-dir', type=str, metavar='PATH',
                             default=osp.join(working_dir, 'data'))
         self.parser.add_argument('--logs-dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'cl_logs'))
+                            default=osp.join(working_dir, 'ex_n1_logs'))
         self.DPTN_group.add_argument('--checkpoints_dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'cl_logs/DPTN'), help='models are saved here')        
+                            default=osp.join(working_dir, 'ex_n1_logs/DPTN'), help='models are saved here')        
         self.DPTN_group.add_argument('--gan_train', action='store_true', help='if specified, train gan and use contrastive learning')
         self.CC_group.add_argument('--pooling-type', type=str, default='gem')
         self.CC_group.add_argument('--use-hard', action="store_true")
