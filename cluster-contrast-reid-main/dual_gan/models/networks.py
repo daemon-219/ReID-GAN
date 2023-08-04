@@ -15,6 +15,8 @@ def define_G(opt, image_nc, pose_nc, ngf=64, img_f=1024, encoder_layer=3, norm='
     print(opt.model)
     if opt.model == 'DPTN':
         netG = DPTNGenerator(image_nc, pose_nc, ngf, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc, num_blocks, affine, nhead, num_CABs, num_TTBs)
+    elif opt.model == 'AE':
+        netG = AEGenerator(image_nc, ngf, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc, num_blocks)
     else:
         raise('generator not implemented!')
     return init_net(netG, opt.init_type)
@@ -76,6 +78,74 @@ class SourceEncoder(nn.Module):
         for i in range(self.encoder_layer - 1):
             model = getattr(self, 'encoder' + str(i))
             out = model(out)
+        return out
+    
+# class Adaptor(nn.Module):
+#     """
+#     Adaptation from synthetic images to real images
+#     :param image_nc: number of channels in input image
+#     :param ngf: base filter channel
+#     :param img_f: the largest feature channels
+#     :param encoder_layer: encoder layers
+#     :param norm: normalization function 'instance, batch, group'
+#     :param activation: activation function 'ReLU, SELU, LeakyReLU, PReLU'
+#     :param use_spect: use spectual normalization
+#     :param use_coord: use coordConv operation
+#     """
+#     def __init__(self, image_nc, ngf=64, img_f=1024, encoder_layer=3, norm='batch',
+#                  activation='ReLU', use_spect=True, use_coord=False):
+#         super(Adaptor, self).__init__()
+
+#         self.encoder_layer = encoder_layer
+
+#         norm_layer = get_norm_layer(norm_type=norm)
+#         nonlinearity = get_nonlinearity_layer(activation_type=activation)
+#         input_nc = image_nc
+
+#         # ResBlocks
+#         self.num_blocks = num_blocks
+#         for i in range(num_blocks):
+#             block = ResBlock(ngf * mult, ngf * mult, norm_layer=norm_layer,
+#                              nonlinearity=nonlinearity, use_spect=use_spect, use_coord=use_coord)
+#             setattr(self, 'mblock' + str(i), block)
+
+#         # Decoder
+#         for i in range(self.layers):
+#             mult_prev = mult
+#             mult = min(2 ** (self.layers - i - 2), img_f // ngf) if i != self.layers - 1 else 1
+#             up = ResBlockDecoder(ngf * mult_prev, ngf * mult, ngf * mult, norm_layer,
+#                                  nonlinearity, use_spect, use_coord)
+#             setattr(self, 'decoder' + str(i), up)
+#         self.outconv = Output(ngf, output_nc, 3, None, nonlinearity, use_spect, use_coord)
+
+#     def forward(self, source):
+#         inputs = source
+#         out = self.block0(inputs)
+#         for i in range(self.encoder_layer - 1):
+#             model = getattr(self, 'encoder' + str(i))
+#             out = model(out)
+#         return out
+
+class Resize_ReID(nn.Module):
+    """
+    resize from sythesized image (128, 64) to reid inputs (256, 128)
+    """
+    def __init__(self, image_nc, ngf=64, norm='batch',
+                 activation='ReLU', use_spect=True, use_coord=False):
+        super(Resize_ReID, self).__init__()
+
+        norm_layer = get_norm_layer(norm_type=norm)
+        nonlinearity = get_nonlinearity_layer(activation_type=activation)
+
+        # ResBlocks
+        self.resblock = ResBlock(image_nc, ngf, norm_layer=norm_layer, nonlinearity=nonlinearity, 
+                                     sample_type='none', use_spect=use_spect, use_coord=use_coord)
+        self.resize_block = ResBlock(ngf, image_nc, norm_layer=norm_layer, nonlinearity=nonlinearity, 
+                                     sample_type='up', use_spect=use_spect, use_coord=use_coord)
+
+
+    def forward(self, inputs):
+        out = self.resize_block(self.resblock(inputs))
         return out
 
 
@@ -190,7 +260,89 @@ class DPTNGenerator(nn.Module):
         out_image_t = self.outconv(F_s_t)
 
         return out_image_t, out_image_s
+    
 
+class AEGenerator(nn.Module):
+    """
+    Autoencoder 
+    :param image_nc: number of channels in input image
+    :param pose_nc: number of channels in input pose
+    :param ngf: base filter channel
+    :param img_f: the largest feature channels
+    :param layers: down and up sample layers
+    :param norm: normalization function 'instance, batch, group'
+    :param activation: activation function 'ReLU, SELU, LeakyReLU, PReLU'
+    :param use_spect: use spectual normalization
+    :param use_coord: use coordConv operation
+    :param output_nc: number of channels in output image
+    :param num_blocks: number of ResBlocks
+    :param affine: affine in Pose Transformer Module
+    :param nhead: number of heads in attention module
+    :param num_CABs: number of CABs
+    :param num_TTBs: number of TTBs
+    """
+    def __init__(self, image_nc, ngf=64, img_f=256, layers=3, norm='batch',
+                 activation='ReLU', use_spect=True, use_coord=False, output_nc=3, num_blocks=3):
+        super(AEGenerator, self).__init__()
+
+        self.layers = layers
+        norm_layer = get_norm_layer(norm_type=norm)
+        nonlinearity = get_nonlinearity_layer(activation_type=activation)
+        input_nc = image_nc
+
+        # Encoder En_c
+        self.block0 = EncoderBlockOptimized(input_nc, ngf, norm_layer,
+                                   nonlinearity, use_spect, use_coord)
+        mult = 1
+        for i in range(self.layers - 1):
+            mult_prev = mult
+            mult = min(2 ** (i + 1), img_f // ngf)
+            block = EncoderBlock(ngf * mult_prev, ngf * mult, norm_layer,
+                                 nonlinearity, use_spect, use_coord)
+            setattr(self, 'encoder' + str(i), block)
+
+        # ResBlocks
+        self.num_blocks = num_blocks
+        for i in range(num_blocks):
+            block = ResBlock(ngf * mult, ngf * mult, norm_layer=norm_layer,
+                             nonlinearity=nonlinearity, use_spect=use_spect, use_coord=use_coord)
+            setattr(self, 'mblock' + str(i), block)
+
+        # Decoder
+        for i in range(self.layers):
+            mult_prev = mult
+            mult = min(2 ** (self.layers - i - 2), img_f // ngf) if i != self.layers - 1 else 1
+            up = ResBlockDecoder(ngf * mult_prev, ngf * mult, ngf * mult, norm_layer,
+                                 nonlinearity, use_spect, use_coord)
+            setattr(self, 'decoder' + str(i), up)
+        self.outconv = Output(ngf, output_nc, 3, None, nonlinearity, use_spect, use_coord)
+
+    def forward(self, inputs):
+        F_s = self.forward_enc(inputs)
+        out_image =self.forward_dec(F_s)
+        return out_image    
+    
+    def forward_enc(self, source):
+        # Enc
+        F_s = self.block0(source)
+        for i in range(self.layers - 1):
+            model = getattr(self, 'encoder' + str(i))
+            F_s = model(F_s)
+        # Resblocks
+        for i in range(self.num_blocks):
+            model = getattr(self, 'mblock' + str(i))
+            F_s = model(F_s)
+
+        return F_s
+
+    def forward_dec(self, feature):
+        # Decoder
+        for i in range(self.layers):
+            model = getattr(self, 'decoder' + str(i))
+            feature = model(feature)
+        out_image = self.outconv(feature)
+
+        return out_image
 
 ##############################################################################
 # Discriminator

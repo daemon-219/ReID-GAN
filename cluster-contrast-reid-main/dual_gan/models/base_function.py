@@ -193,7 +193,7 @@ class ResBlock(nn.Module):
     """
     Define an Residual block for different types
     """
-    def __init__(self, input_nc, output_nc, hidden_nc=None, norm_layer=nn.BatchNorm2d, nonlinearity= nn.LeakyReLU(),
+    def __init__(self, input_nc, output_nc, hidden_nc=None, norm_layer=nn.BatchNorm2d, nonlinearity=nn.LeakyReLU(),
                  sample_type='none', use_spect=False, use_coord=False):
         super(ResBlock, self).__init__()
 
@@ -263,7 +263,6 @@ class EncoderBlock(nn.Module):
     def __init__(self, input_nc, output_nc, norm_layer=nn.BatchNorm2d, nonlinearity=nn.LeakyReLU(),
                  use_spect=False, use_coord=False):
         super(EncoderBlock, self).__init__()
-
 
         kwargs_down = {'kernel_size': 4, 'stride': 2, 'padding': 1}
         kwargs_fine = {'kernel_size': 3, 'stride': 1, 'padding': 1}

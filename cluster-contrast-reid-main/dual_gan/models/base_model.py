@@ -119,6 +119,8 @@ class BaseModel():
                     print('load %s from %s' % (name, path))
                 except FileNotFoundError:
                     print('do not find checkpoint for network %s'%name)
+                    if torch.cuda.is_available():
+                        net.cuda()
                     continue
                 except:
                     pretrained_dict = torch.load(path)
@@ -150,8 +152,6 @@ class BaseModel():
                         net.load_state_dict(model_dict)
                 if torch.cuda.is_available():
                     net.cuda()
-                if not self.gan_train:
-                    net.eval()
 
     def update_learning_rate(self, epoch=None):
         """Update learning rate"""

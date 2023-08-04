@@ -134,7 +134,7 @@ def get_test_loader(dataset, height, width, batch_size, workers, with_pose=False
 
 def create_model(opt):
     model = models.create(opt.arch, num_features=opt.features, norm=True, dropout=opt.dropout,
-                          num_classes=0, pooling_type=opt.pooling_type, need_predictor=opt.gan_train)
+                          num_classes=0, pooling_type=opt.pooling_type, need_predictor=opt.cl_loss)
     # use CUDA
     model.cuda()
     model = nn.DataParallel(model)
@@ -220,7 +220,7 @@ def main_worker(opt):
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=opt.step_size, gamma=0.1)
     # Trainer
     if opt.with_gan:
-        trainer = ClusterContrastWithGANTrainer(encoder=ReID_model, GAN=DPTN_model, writer=writer, T=opt.cl_temp)
+        trainer = ClusterContrastWithGANTrainer(encoder=ReID_model, GAN=DPTN_model, writer=writer, opt=opt)
     else: 
         trainer = ClusterContrastTrainer(ReID_model)
 

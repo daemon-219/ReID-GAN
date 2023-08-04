@@ -169,7 +169,10 @@ Thanks to Yixiao Ge for opening source of his excellent works  [SpCL](https://gi
 
 # Modifications
 Do data loading part in clustercontrast/utils/data/preprocessor.py
+
 Modify training pipeline in clustercontrast/trainers.py
+
 GAN model in dual_gan/models/DPTN_model.py
+
 Training options in examples/options
 

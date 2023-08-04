@@ -13,39 +13,40 @@ class BaseOptions():
 
     def initialize(self):    
         # experiment specifics
-        self.DPTN_group = self.parser.add_argument_group(title='DPTN GAN options')
+        self.GAN_group = self.parser.add_argument_group(title='GAN options')
         self.CC_group = self.parser.add_argument_group(title='CC ReID options')
         self.AL_group = self.parser.add_argument_group(title='Gradient Matching options')
 
         # path
-        self.parser.add_argument('--name', type=str, default='DPTN_CC_market_neg', help='name of the experiment. It decides where to store samples and models')  
+        self.parser.add_argument('--name', type=str, default='AE_CC_market', help='name of the experiment. It decides where to store samples and models')  
         working_dir = './examples'
         self.parser.add_argument('--data-dir', type=str, metavar='PATH',
                             default=osp.join(working_dir, 'data'))
         self.parser.add_argument('--logs-dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'ex_n1_logs'))
-        self.DPTN_group.add_argument('--checkpoints_dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'ex_n1_logs/DPTN'), help='models are saved here')        
-        self.DPTN_group.add_argument('--gan_train', action='store_true', help='if specified, train gan and use contrastive learning')
+                            default=osp.join(working_dir, 'ae_logs'))
+        self.GAN_group.add_argument('--checkpoints_dir', type=str, metavar='PATH',
+                            default=osp.join(working_dir, 'ae_logs/AE'), help='models are saved here')        
+        self.GAN_group.add_argument('--gan_train', action='store_true', help='if specified, train gan and use contrastive learning')
+        self.GAN_group.add_argument('--use_adp', action='store_true', help='if specified, train adaptor for gan')
         self.CC_group.add_argument('--pooling-type', type=str, default='gem')
         self.CC_group.add_argument('--use-hard', action="store_true")
         self.parser.add_argument('--no-cam', action="store_true")
       
         # self.parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
-        self.DPTN_group.add_argument('--model', type=str, default='DPTN', help='which model to use')
-        self.DPTN_group.add_argument('--norm', type=str, default='instance', help='instance normalization or batch normalization')        
-        self.DPTN_group.add_argument('--use_dropout', action='store_true', help='use dropout for the generator')
-        self.DPTN_group.add_argument('--data_type', default=32, type=int, choices=[8, 16, 32], help="Supported data type i.e. 8, 16, 32 bit")
-        self.DPTN_group.add_argument('--verbose', action='store_true', default=False, help='toggles verbose')
-        self.DPTN_group.add_argument('--fp16', action='store_true', default=False, help='train with AMP')
+        self.GAN_group.add_argument('--model', type=str, default='DPTN', help='which model to use')
+        self.GAN_group.add_argument('--norm', type=str, default='instance', help='instance normalization or batch normalization')        
+        self.GAN_group.add_argument('--use_dropout', action='store_true', help='use dropout for the generator')
+        self.GAN_group.add_argument('--data_type', default=32, type=int, choices=[8, 16, 32], help="Supported data type i.e. 8, 16, 32 bit")
+        self.GAN_group.add_argument('--verbose', action='store_true', default=False, help='toggles verbose')
+        self.GAN_group.add_argument('--fp16', action='store_true', default=False, help='train with AMP')
         # self.parser.add_argument('--local_rank', type=int, default=0, help='local rank for distributed training')
 
         # input/output sizes
-        self.DPTN_group.add_argument('--image_nc', type=int, default=3)
-        self.DPTN_group.add_argument('--pose_nc', type=int, default=18)
+        self.GAN_group.add_argument('--image_nc', type=int, default=3)
+        self.GAN_group.add_argument('--pose_nc', type=int, default=18)
         # self.parser.add_argument('--batchSize', type=int, default=1, help='input batch size')
-        self.DPTN_group.add_argument('--old_size', type=int, default=(128, 64), help='Scale images to this size. The final image will be cropped to --crop_size.')
-        self.DPTN_group.add_argument('--loadSize', type=int, default=128, help='scale images to this size')
+        self.GAN_group.add_argument('--old_size', type=int, default=(128, 64), help='Scale images to this size. The final image will be cropped to --crop_size.')
+        self.GAN_group.add_argument('--loadSize', type=int, default=128, help='scale images to this size')
         # self.parser.add_argument('--fineSize', type=int, default=512, help='then crop to this size')
         # self.parser.add_argument('--label_nc', type=int, default=35, help='# of input label channels')
         # self.parser.add_argument('--input_nc', type=int, default=3, help='# of input image channels')
@@ -61,23 +62,23 @@ class BaseOptions():
         # self.parser.add_argument('--max_dataset_size', type=int, default=float("inf"), help='Maximum number of samples allowed per dataset. If the dataset directory contains more than max_dataset_size, only a subset is loaded.')
 
         # for displays
-        self.DPTN_group.add_argument('--display_winsize', type=int, default=512,  help='display window size')
-        self.DPTN_group.add_argument('--tf_log', action='store_true', help='if specified, use tensorboard logging. Requires tensorflow installed')
-        self.DPTN_group.add_argument('--display_id', type=int, default=0, help='display id of the web')  # 1
-        self.DPTN_group.add_argument('--display_port', type=int, default=8096, help='visidom port of the web display')
-        self.DPTN_group.add_argument('--display_single_pane_ncols', type=int, default=0,
+        self.GAN_group.add_argument('--display_winsize', type=int, default=512,  help='display window size')
+        self.GAN_group.add_argument('--tf_log', action='store_true', help='if specified, use tensorboard logging. Requires tensorflow installed')
+        self.GAN_group.add_argument('--display_id', type=int, default=0, help='display id of the web')  # 1
+        self.GAN_group.add_argument('--display_port', type=int, default=8096, help='visidom port of the web display')
+        self.GAN_group.add_argument('--display_single_pane_ncols', type=int, default=0,
                             help='if positive, display all images in a single visidom web panel')
-        self.DPTN_group.add_argument('--display_env', type=str, default=self.parser.parse_known_args()[0].name.replace('_', ''),
+        self.GAN_group.add_argument('--display_env', type=str, default=self.parser.parse_known_args()[0].name.replace('_', ''),
                             help='the environment of visidom display')
         # for instance-wise features
-        self.DPTN_group.add_argument('--no_instance', action='store_true', help='if specified, do *not* add instance map as input')        
-        self.DPTN_group.add_argument('--instance_feat', action='store_true', help='if specified, add encoded instance features as input')
-        self.DPTN_group.add_argument('--label_feat', action='store_true', help='if specified, add encoded label features as input')        
-        self.DPTN_group.add_argument('--feat_num', type=int, default=3, help='vector length for encoded features')        
-        self.DPTN_group.add_argument('--load_features', action='store_true', help='if specified, load precomputed feature maps')
-        self.DPTN_group.add_argument('--n_downsample_E', type=int, default=4, help='# of downsampling layers in encoder') 
-        self.DPTN_group.add_argument('--nef', type=int, default=16, help='# of encoder filters in the first conv layer')        
-        self.DPTN_group.add_argument('--n_clusters', type=int, default=10, help='number of clusters for features')
+        self.GAN_group.add_argument('--no_instance', action='store_true', help='if specified, do *not* add instance map as input')        
+        self.GAN_group.add_argument('--instance_feat', action='store_true', help='if specified, add encoded instance features as input')
+        self.GAN_group.add_argument('--label_feat', action='store_true', help='if specified, add encoded label features as input')        
+        self.GAN_group.add_argument('--feat_num', type=int, default=3, help='vector length for encoded features')        
+        self.GAN_group.add_argument('--load_features', action='store_true', help='if specified, load precomputed feature maps')
+        self.GAN_group.add_argument('--n_downsample_E', type=int, default=4, help='# of downsampling layers in encoder') 
+        self.GAN_group.add_argument('--nef', type=int, default=16, help='# of encoder filters in the first conv layer')        
+        self.GAN_group.add_argument('--n_clusters', type=int, default=10, help='number of clusters for features')
 
         '''reid args'''
         # data
