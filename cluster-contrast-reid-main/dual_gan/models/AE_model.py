@@ -8,11 +8,12 @@ from .base_model import BaseModel
 from . import networks
 from . import external_function
 from . import base_function
+import torch.nn.functional as F
 
 
 class AEModel(BaseModel):
     def name(self):
-        return 'DPTNModel'
+        return 'AEModel'
 
     @staticmethod
     def modify_options(parser, is_train=True):
@@ -40,9 +41,9 @@ class AEModel(BaseModel):
     def __init__(self, opt):
         BaseModel.__init__(self, opt)
         self.old_size = opt.old_size
-        self.loss_names = ['app_gen', 'content_gen', 'style_gen', 'ad_gen', 'dis_img_gen', 'G_loss', 'D_loss']
+        self.loss_names = ['app_gen', 'content_gen', 'style_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
         self.model_names = ['G']
-        self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image_s', 'fake_image_t']
+        self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image', 'fake_image_n']
 
         self.net_G = networks.define_G(opt, image_nc=opt.image_nc, pose_nc=opt.pose_nc, ngf=64, img_f=512,
                                        encoder_layer=3, norm=opt.norm, activation='LeakyReLU',
@@ -127,18 +128,44 @@ class AEModel(BaseModel):
     
     def synthesize(self):
         F_s = self.net_G.module.forward_enc(self.source_image)
-        F_t = self.net_G.module.forward_enc(self.source_image)
+        # F_t = self.net_G.module.forward_enc(torch.flip(self.source_image, dims=[0]))
 
         # print(F_s.shape)
         # (b, 256, 16, 8)
 
         self.fake_image = self.net_G.module.forward_dec(F_s)
         
-        F_n = F_s + F_t
+        F_n = self.feature_fusion(F_s, torch.flip(F_s, dims=[0]))
 
-        self.fake_image_n = self.net_G.module.forward_dec(F_t)
+        self.fake_image_n = self.net_G.module.forward_dec(F_n)
         
-        return self.fake_image_n
+        return self.fake_image_n    
+    
+    def feature_fusion(self, F_s, F_t, div=2):
+        # feature fusion strategy 
+        anchor = F_s.detach().clone()
+        target = F_t.detach().clone()
+        anchor_feature = F.normalize(torch.flatten(F.adaptive_avg_pool2d(anchor, (1,1)), start_dim=1), dim=-1)
+        FH = anchor.shape[2]
+        part_h =  FH // div
+        part_features = []
+        # cut, flatten and norm each part feature
+        for i in range(div):
+            h1 = i * part_h
+            h2 = min((i+1) * part_h, FH)
+            pf = torch.flatten(F.adaptive_avg_pool2d(target[:,:,h1:h2,:], (1,1)), start_dim=1)
+            part_features.append(F.normalize(pf, dim=1))
+
+        target_parts = torch.stack(part_features, dim=1)
+        # calculate similarity between anchor and each target parts
+        sim_id = torch.argmax(torch.einsum('n c, n d c -> n d', [anchor_feature, target_parts]), dim=-1)
+        F_n = torch.zeros_like(F_s)
+        for i in range(div):
+            h1 = i * part_h
+            h2 = min((i+1) * part_h, FH)
+            ratio_mask = torch.where(sim_id == i, 1-self.opt.lambda_fus, self.opt.lambda_fus).reshape(-1, 1, 1, 1)
+            F_n[:,:,h1:h2,:] = ratio_mask * F_s[:,:,h1:h2,:] + (1- ratio_mask) * F_t[:,:,h1:h2,:]
+        return F_n
 
     def backward_D_basic(self, netD, real, fake):
         # Real
@@ -159,8 +186,8 @@ class AEModel(BaseModel):
     def backward_D(self):
         base_function._unfreeze(self.net_D)
         self.loss_dis_img_gen = self.backward_D_basic(self.net_D, self.source_image, self.fake_image)
-        self.D_loss = self.loss_dis_img_gen
-        self.D_loss.backward()
+        self.loss_D = self.loss_dis_img_gen
+        self.loss_D.backward()
 
     def backward_G_basic(self, fake_image, target_image, use_d):
         # Calculate reconstruction loss
@@ -181,13 +208,16 @@ class AEModel(BaseModel):
 
         return loss_app_gen, loss_ad_gen, loss_style_gen, loss_content_gen
 
-    def backward_G(self, retain_graph=False):
+    def backward_G(self, loss_nl):
         base_function._unfreeze(self.net_D)
 
-        self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d = False)
-        self.G_loss = self.loss_app_gen + self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
+        self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
+        self.loss_G = self.loss_app_gen + self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
+        # loss bp from reid part
+        if loss_nl is not None:
+           self.loss_G = self.loss_G + self.opt.lambda_nl * loss_nl 
          
-        self.G_loss.backward(retain_graph=retain_graph)
+        self.loss_G.backward()
 
     def optimize_parameters(self):
         self.forward()
@@ -200,13 +230,13 @@ class AEModel(BaseModel):
         self.backward_G()
         self.optimizer_G.step()
 
-    def optimize_generated(self):
+    def optimize_generated(self, loss_nl=None):
         self.optimizer_D.zero_grad()
         self.backward_D()
         self.optimizer_D.step()
 
         self.optimizer_G.zero_grad()
-        self.backward_G()
+        self.backward_G(loss_nl)
         self.optimizer_G.step()
 
     def optimize_parameters_adaptor(self, loss):

@@ -66,6 +66,7 @@ class ResNet(nn.Module):
                 self.classifier = nn.Linear(self.num_features, self.num_classes, bias=False)
                 init.normal_(self.classifier.weight, std=0.001)
             if self.need_predictor:
+                print("build predictor for cl loss")
                 self._build_predictor_mlps(self.num_features, 2*self.num_features)
         init.constant_(self.feat_bn.weight, 1)
         init.constant_(self.feat_bn.bias, 0)
