@@ -14,6 +14,7 @@ class TrainOptions(BaseOptions):
 
         # for training
         self.parser.add_argument('--continue_train', action='store_true', help='continue training: load the latest model')
+        self.CC_group.add_argument('--reid_pretrain', type=str, default='', help='load the pretrained model from the specified location')
         self.GAN_group.add_argument('--load_pretrain', type=str, default='', help='load the pretrained model from the specified location')
         self.GAN_group.add_argument('--which_epoch', type=str, default='latest', help='which epoch to load? set to latest to use latest cached model')
         # self.GAN_group.add_argument('--phase', type=str, default='train', help='train, val, test, etc')
@@ -40,19 +41,22 @@ class TrainOptions(BaseOptions):
         self.CC_group.add_argument('--weight-decay', type=float, default=5e-4)
         self.CC_group.add_argument('--epochs', type=int, default=50)
         self.CC_group.add_argument('--iters', type=int, default=400)
-        self.CC_group.add_argument('--step-size', type=int, default=20)
+        self.CC_group.add_argument('--lr-step-size', type=int, default=20)
 
         # training configs
         self.parser.add_argument('--seed', type=int, default=1)
         self.parser.add_argument('--print-freq', type=int, default=10)
-        self.GAN_group.add_argument('--vis-step', type=int, default=2)
-        self.CC_group.add_argument('--eval-step', type=int, default=5)
+        self.GAN_group.add_argument('--vis-step', type=int, default=5)
+        self.CC_group.add_argument('--eval-step', type=int, default=10)
         self.CC_group.add_argument('--temp', type=float, default=0.05,
                             help="temperature for scaling contrastive loss")
         self.parser.add_argument('--with_gan', action="store_true")
 
-        '''additional losses'''
-        self.AL_group.add_argument('--lambda_nl', type=float, default=1.0, help='weight of following loss for generator')
+        '''additional args'''
+        self.AL_group.add_argument('--warmup_epo', type=int, default=0, help='warm up epochs for reid')
+        self.AL_group.add_argument('--lambda_nl', type=float, default=0.3, help='weight of following loss for gan')
+        self.AL_group.add_argument('--lambda_ori', type=float, default=1., help='weight of following cl loss for reid')
+        self.AL_group.add_argument('--lambda_cl', type=float, default=1., help='weight of following cl loss for reid')
         self.AL_group.add_argument('--dis_metric', choices=['ours', 'mse', 'cos'], type=str, default='ours', help='loss types of gradient matching')
         self.AL_group.add_argument('--cl_loss', action='store_true', help='if specified, train reid with added cl')
         self.AL_group.add_argument('--cl_temp', type=float, default=1.0, help='temperature of contrastive learning')

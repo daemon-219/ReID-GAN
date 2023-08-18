@@ -18,14 +18,14 @@ class BaseOptions():
         self.AL_group = self.parser.add_argument_group(title='Gradient Matching options')
 
         # path
-        self.parser.add_argument('--name', type=str, default='AE_CC_market_2', help='name of the experiment. It decides where to store samples and models')  
+        self.parser.add_argument('--name', type=str, default='AE_CC_market_adp', help='name of the experiment. It decides where to store samples and models')  
         working_dir = './examples'
         self.parser.add_argument('--data-dir', type=str, metavar='PATH',
                             default=osp.join(working_dir, 'data'))
         self.parser.add_argument('--logs-dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'ae_f_adv_logs'))
+                            default=osp.join(working_dir, 'Logs', 'ae_adp_ur_logs'))
         self.GAN_group.add_argument('--checkpoints_dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'ae_f_adv_logs/AE'), help='models are saved here')        
+                            default=osp.join(working_dir, 'Logs', 'ae_adp_ur_logs/AE'), help='models are saved here')        
         self.GAN_group.add_argument('--gan_train', action='store_true', help='if specified, train gan and use contrastive learning')
         self.GAN_group.add_argument('--use_adp', action='store_true', help='if specified, train adaptor for gan')
         self.CC_group.add_argument('--pooling-type', type=str, default='gem')

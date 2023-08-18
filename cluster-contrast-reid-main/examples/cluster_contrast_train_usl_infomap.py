@@ -151,6 +151,11 @@ def main_worker(args):
     # Trainer
     trainer = ClusterContrastTrainer(model)
 
+    if args.reid_pretrain is not None:
+        model_path = osp.join(args.reid_pretrain, "checkpoint.pth.tar")
+        print('Loading ReID model from epoch %s' % (model_path))
+        model.load_state_dict(torch.load(model_path)['state_dict'])
+
     for epoch in range(args.epochs):
         with torch.no_grad():
             print('==> Create pseudo labels for unlabeled data')
@@ -280,7 +285,7 @@ if __name__ == '__main__':
     # training configs
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--print-freq', type=int, default=10)
-    parser.add_argument('--eval-step', type=int, default=10)
+    parser.add_argument('--eval-step', type=int, default=1)
     parser.add_argument('--temp', type=float, default=0.05,
                         help="temperature for scaling contrastive loss")
     # path
@@ -288,7 +293,8 @@ if __name__ == '__main__':
     parser.add_argument('--data-dir', type=str, metavar='PATH',
                         default=osp.join(working_dir, 'data'))
     parser.add_argument('--logs-dir', type=str, metavar='PATH',
-                        default=osp.join(working_dir, 'logs'))
+                        default=osp.join(working_dir, 'reid_logs'))    
+    parser.add_argument('--reid_pretrain', type=str, metavar='PATH', default=None)
     parser.add_argument('--pooling-type', type=str, default='gem')
     parser.add_argument('--use-hard', action="store_true")
     parser.add_argument('--no-cam', action="store_true")

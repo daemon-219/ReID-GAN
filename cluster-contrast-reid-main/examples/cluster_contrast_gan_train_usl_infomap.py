@@ -172,7 +172,7 @@ def main_worker(opt):
     test_loader = get_test_loader(dataset, opt.height, opt.width, opt.batch_size, opt.workers)
     
     # Create model
-    DPTN_model = None
+    GAN_model = None
     visualizer = None
     if opt.with_gan:
         # '''fdgan'''
@@ -180,7 +180,7 @@ def main_worker(opt):
         # GAN_model = FDGANModel(opt)
         # visualizer = Visualizer(opt)
 
-        '''DPTN_model'''
+        '''GAN_model'''
         iter_path = osp.join(opt.checkpoints_dir, opt.name, 'iter.txt')
         if opt.continue_train:
             try:
@@ -201,7 +201,7 @@ def main_worker(opt):
             opt.max_dataset_size = 10
 
 
-        DPTN_model = create_gan(opt)
+        GAN_model = create_gan(opt)
         visualizer = Visualizer(opt)
 
     '''reid model'''
@@ -217,19 +217,20 @@ def main_worker(opt):
     params = [{"params": [value]} for _, value in ReID_model.named_parameters() if value.requires_grad]
     optimizer = torch.optim.Adam(params, lr=opt.reid_lr, weight_decay=opt.weight_decay)
 
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=opt.step_size, gamma=0.1)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=opt.lr_step_size, gamma=0.1)
     # Trainer
     if opt.with_gan:
-        trainer = ClusterContrastWithGANTrainer(encoder=ReID_model, GAN=DPTN_model, writer=writer, opt=opt)
+        trainer = ClusterContrastWithGANTrainer(encoder=ReID_model, GAN=GAN_model, writer=writer, opt=opt)
     else: 
         trainer = ClusterContrastTrainer(ReID_model)
 
     acc_iters = 0
 
     if opt.continue_train:
-        model_path = osp.join(opt.logs_dir, "checkpoint.pth.tar")
+        model_path = osp.join(opt.reid_pretrain, "checkpoint.pth.tar")
         print('Loading ReID model from epoch %s' % (model_path))
-        ReID_model.load_state_dict(torch.load(model_path)['state_dict'])
+        ReID_model.load_state_dict(torch.load(model_path)['state_dict'], strict=False)
+        
 
     for epoch in range(opt.epochs):
         with torch.no_grad():
@@ -295,14 +296,18 @@ def main_worker(opt):
         """
         TODO: check data preprocessor, trainer
         """
-        if opt.gan_train:
-            trainer.train_all(epoch, train_loader, optimizer,
-                        dis_metric=opt.dis_metric, print_freq=opt.print_freq, 
-                        train_iters=len(train_loader), acc_iters=acc_iters)
+        if (epoch + 1) > opt.warmup_epo: 
+            if opt.gan_train:
+                trainer.train_all(epoch, train_loader, optimizer,
+                            dis_metric=opt.dis_metric, print_freq=opt.print_freq, 
+                            train_iters=len(train_loader), acc_iters=acc_iters)
+            else:
+                trainer.train(epoch, train_loader, optimizer, print_freq=opt.print_freq, 
+                            train_iters=len(train_loader), acc_iters=acc_iters)
         else:
-            trainer.train(epoch, train_loader, optimizer, print_freq=opt.print_freq, 
-                        train_iters=len(train_loader), acc_iters=acc_iters)
-            
+            trainer.train_reid(epoch, train_loader, optimizer, print_freq=opt.print_freq, 
+                            train_iters=len(train_loader), acc_iters=acc_iters)        
+        
         acc_iters += len(train_loader)
 
         if (epoch + 1) % opt.eval_step == 0 or (epoch == opt.epochs - 1):
@@ -315,33 +320,33 @@ def main_worker(opt):
                 'epoch': epoch + 1,
                 'best_mAP': best_mAP,
             }, is_best, fpath=osp.join(opt.logs_dir, 'checkpoint.pth.tar'))
-            if opt.with_gan:
-                DPTN_model.save_networks('latest')
-                DPTN_model.save_networks(epoch)
-                np.savetxt(iter_path, (epoch+1, 0), delimiter=',', fmt='%d')
-
             print('\n * Finished epoch {:3d}  model mAP: {:5.1%}  best: {:5.1%}{}\n'.
                   format(epoch, mAP, best_mAP, ' *' if is_best else ''))
-
-        if opt.with_gan: 
-            if opt.gan_train:
-                lr_G, lr_D = DPTN_model.get_current_learning_rate()
-                print('Epoch: [{}]\t'
-                            'LR/reid {:.7f}\t'
-                            'LR/G: {:.7f}\t'
-                            'LR/D: {:.7f}\n'
-                            .format(epoch,
-                                    optimizer.state_dict()['param_groups'][0]['lr'],
-                                    lr_G,
-                                    lr_D))
-                DPTN_model.update_learning_rate()
-            
-            if (epoch + 1) % opt.vis_step == 0 or (epoch == opt.epochs - 1):
-                # visualize gan results 
-                DPTN_model.visual_names = ['source_image', 'fake_image_n']
-                visualizer.display_current_results(DPTN_model.get_current_visuals(), epoch)
-                if hasattr(DPTN_model, 'distribution'):
-                    visualizer.plot_current_distribution(DPTN_model.get_current_dis())
+        
+        if (epoch + 1) > opt.warmup_epo: 
+            if opt.with_gan: 
+                if opt.gan_train:
+                    GAN_model.save_networks('latest')
+                    # GAN_model.save_networks(epoch)
+                    # np.savetxt(iter_path, (epoch+1, 0), delimiter=',', fmt='%d')
+                    lr_G, lr_D = GAN_model.get_current_learning_rate()
+                    print('Epoch: [{}]\t'
+                                'LR/reid {:.7f}\t'
+                                'LR/G: {:.7f}\t'
+                                'LR/D: {:.7f}\n'
+                                .format(epoch,
+                                        optimizer.state_dict()['param_groups'][0]['lr'],
+                                        lr_G,
+                                        lr_D))
+                    GAN_model.update_learning_rate()
+                
+                if (epoch + 1) % opt.vis_step == 0 or (epoch == opt.epochs - 1):
+                    # visualize gan results 
+                    # GAN_model.visual_names = ['source_image', 'target_image', 'fake_image', 'fake_image_n']
+                    GAN_model.visual_names = ['source_image', 'fake_image']
+                    visualizer.display_current_results(GAN_model.get_current_visuals(), epoch)
+                    if hasattr(GAN_model, 'distribution'):
+                        visualizer.plot_current_distribution(GAN_model.get_current_dis())
 
         lr_scheduler.step()
         

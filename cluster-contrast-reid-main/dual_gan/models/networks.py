@@ -5,6 +5,7 @@ from torch.autograd import Variable
 import numpy as np
 from .base_function import *
 from .PTM import PTM
+from clustercontrast.utils.data.diff_augs import my_resize, my_transform, my_normalize
 
 
 ###############################################################################
@@ -138,15 +139,17 @@ class Resize_ReID(nn.Module):
         nonlinearity = get_nonlinearity_layer(activation_type=activation)
 
         # ResBlocks
-        self.resblock = ResBlock(image_nc, ngf, norm_layer=norm_layer, nonlinearity=nonlinearity, 
+        self.resblock1 = ResBlock(image_nc, ngf, norm_layer=norm_layer, nonlinearity=nonlinearity, 
                                      sample_type='none', use_spect=use_spect, use_coord=use_coord)
-        self.resize_block = ResBlock(ngf, image_nc, norm_layer=norm_layer, nonlinearity=nonlinearity, 
-                                     sample_type='up', use_spect=use_spect, use_coord=use_coord)
-
+        self.resblock2 = ResBlock(ngf, ngf, norm_layer=norm_layer, nonlinearity=nonlinearity, 
+                                     sample_type='none', use_spect=use_spect, use_coord=use_coord)
+        self.resblock3 = ResBlock(ngf, image_nc, norm_layer=norm_layer, nonlinearity=nonlinearity, 
+                                     sample_type='none', use_spect=use_spect, use_coord=use_coord)
 
     def forward(self, inputs):
-        out = self.resize_block(self.resblock(inputs))
-        return out
+        x = my_resize(inputs)
+        out = self.resblock3(self.resblock2(self.resblock1(x)))
+        return x + out
 
 
 class DPTNGenerator(nn.Module):
@@ -363,16 +366,16 @@ class DECGenerator(nn.Module):
     :param num_CABs: number of CABs
     :param num_TTBs: number of TTBs
     """
-    def __init__(self, image_nc, ngf=64, img_f=256, layers=3, norm='batch',
+    def __init__(self, num_feature=2048, pose_nc=18, ngf=64, img_f=256, layers=3, norm='batch',
                  activation='ReLU', use_spect=True, use_coord=False, output_nc=3, num_blocks=3):
         super(AEGenerator, self).__init__()
 
         self.layers = layers
         norm_layer = get_norm_layer(norm_type=norm)
         nonlinearity = get_nonlinearity_layer(activation_type=activation)
-        input_nc = image_nc
+        input_nc = pose_nc
 
-        # Encoder En_c
+        # Pose Encoder En_c
         self.block0 = EncoderBlockOptimized(input_nc, ngf, norm_layer,
                                    nonlinearity, use_spect, use_coord)
         mult = 1

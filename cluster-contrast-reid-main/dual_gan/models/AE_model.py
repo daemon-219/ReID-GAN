@@ -43,7 +43,8 @@ class AEModel(BaseModel):
         self.old_size = opt.old_size
         self.loss_names = ['app_gen', 'content_gen', 'style_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
         self.model_names = ['G']
-        self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image', 'fake_image_n']
+        # self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image', 'fake_image_n']
+        self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image']
 
         self.net_G = networks.define_G(opt, image_nc=opt.image_nc, pose_nc=opt.pose_nc, ngf=64, img_f=512,
                                        encoder_layer=3, norm=opt.norm, activation='LeakyReLU',
@@ -126,20 +127,30 @@ class AEModel(BaseModel):
         # Encode Inputs
         self.fake_image = self.net_G(self.source_image)
     
-    def synthesize(self):
-        F_s = self.net_G.module.forward_enc(self.source_image)
-        # F_t = self.net_G.module.forward_enc(torch.flip(self.source_image, dims=[0]))
+    def synthesize(self, is_train=False):
+        self.fake_image = self.net_A(self.net_G(self.source_image))
+        return self.fake_image, None
+        # F_s = self.net_G.module.forward_enc(self.source_image)
 
-        # print(F_s.shape)
-        # (b, 256, 16, 8)
+        # # print(F_s.shape)
+        # # (b, 256, 16, 8)
 
-        self.fake_image = self.net_G.module.forward_dec(F_s)
+        # self.fake_image = self.net_G.module.forward_dec(F_s)
         
-        F_n = self.feature_fusion(F_s, torch.flip(F_s, dims=[0]))
+        # F_n = self.feature_fusion(F_s, torch.flip(F_s, dims=[0]))
 
-        self.fake_image_n = self.net_G.module.forward_dec(F_n)
-        
-        return self.fake_image_n    
+        # self.fake_image_n = self.net_G.module.forward_dec(F_n)
+
+        # if self.use_adp:
+        #     self.fake_image_n = self.net_A(self.fake_image_n)
+
+        # if is_train:
+        #     self.fake_image_s = self.net_G.module.forward_dec(F_s)
+        #     if self.use_adp:
+        #         self.fake_image_s = self.net_A(self.fake_image_s)
+        #     return self.fake_image_s, self.fake_image_n  
+
+        # return self.fake_image_n   
     
     def feature_fusion(self, F_s, F_t, div=2):
         # feature fusion strategy 
