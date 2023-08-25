@@ -13,11 +13,13 @@ from clustercontrast.utils.data.diff_augs import my_resize, my_transform, my_nor
 ###############################################################################
 def define_G(opt, image_nc, pose_nc, ngf=64, img_f=1024, encoder_layer=3, norm='batch',
                  activation='ReLU', use_spect=True, use_coord=False, output_nc=3, num_blocks=3, affine=True, nhead=2, num_CABs=2, num_TTBs=2):
-    print(opt.model)
-    if opt.model == 'DPTN':
+    print(opt.model_gen)
+    if opt.model_gen == 'DPTN':
         netG = DPTNGenerator(image_nc, pose_nc, ngf, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc, num_blocks, affine, nhead, num_CABs, num_TTBs)
-    elif opt.model == 'AE':
-        netG = AEGenerator(image_nc, ngf, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc, num_blocks)
+    elif opt.model_gen == 'AE':
+        netG = AEGenerator(image_nc, ngf, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc, num_blocks)    
+    elif opt.model_gen == 'DEC':
+        netG = DECGenerator(ngf, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc)
     else:
         raise('generator not implemented!')
     return init_net(netG, opt.init_type)
@@ -348,52 +350,29 @@ class AEGenerator(nn.Module):
         return out_image
 
 class DECGenerator(nn.Module):
-    """
-    Autoencoder 
-    :param image_nc: number of channels in input image
-    :param pose_nc: number of channels in input pose
-    :param ngf: base filter channel
-    :param img_f: the largest feature channels
-    :param layers: down and up sample layers
-    :param norm: normalization function 'instance, batch, group'
-    :param activation: activation function 'ReLU, SELU, LeakyReLU, PReLU'
-    :param use_spect: use spectual normalization
-    :param use_coord: use coordConv operation
-    :param output_nc: number of channels in output image
-    :param num_blocks: number of ResBlocks
-    :param affine: affine in Pose Transformer Module
-    :param nhead: number of heads in attention module
-    :param num_CABs: number of CABs
-    :param num_TTBs: number of TTBs
-    """
-    def __init__(self, num_feature=2048, pose_nc=18, ngf=64, img_f=256, layers=3, norm='batch',
+
+    def __init__(self, ngf=64, img_f=2048, layers=3, norm='batch',
                  activation='ReLU', use_spect=True, use_coord=False, output_nc=3, num_blocks=3):
-        super(AEGenerator, self).__init__()
+        super(DECGenerator, self).__init__()
 
         self.layers = layers
         norm_layer = get_norm_layer(norm_type=norm)
         nonlinearity = get_nonlinearity_layer(activation_type=activation)
-        input_nc = pose_nc
+        mult = 4
 
-        # Pose Encoder En_c
-        self.block0 = EncoderBlockOptimized(input_nc, ngf, norm_layer,
-                                   nonlinearity, use_spect, use_coord)
-        mult = 1
-        for i in range(self.layers - 1):
-            mult_prev = mult
-            mult = min(2 ** (i + 1), img_f // ngf)
-            block = EncoderBlock(ngf * mult_prev, ngf * mult, norm_layer,
-                                 nonlinearity, use_spect, use_coord)
-            setattr(self, 'encoder' + str(i), block)
+        # # (b, 2048)->(b, 512, 4, 2)
+        # # don't use instance norm here
+        # self.feat_up = ResUP12Block(input_nc=img_f, output_nc=img_f // 4, hidden_nc=img_f // 2,
+        #                          nonlinearity=nonlinearity, use_spect=use_spect, use_coord=use_coord)
+
+        # img_f = img_f // 4
 
         # ResBlocks
-        self.num_blocks = num_blocks
-        for i in range(num_blocks):
-            block = ResBlock(ngf * mult, ngf * mult, norm_layer=norm_layer,
-                             nonlinearity=nonlinearity, use_spect=use_spect, use_coord=use_coord)
-            setattr(self, 'mblock' + str(i), block)
-
+        self.resblock = ResBlock(img_f, ngf * mult, norm_layer=norm_layer,
+                         nonlinearity=nonlinearity, use_spect=use_spect, use_coord=use_coord)
+   
         # Decoder
+        # (b, 512, 4, 2)->(b, 64, 128, 64)
         for i in range(self.layers):
             mult_prev = mult
             mult = min(2 ** (self.layers - i - 2), img_f // ngf) if i != self.layers - 1 else 1
@@ -403,24 +382,8 @@ class DECGenerator(nn.Module):
         self.outconv = Output(ngf, output_nc, 3, None, nonlinearity, use_spect, use_coord)
 
     def forward(self, inputs):
-        F_s = self.forward_enc(inputs)
-        out_image =self.forward_dec(F_s)
-        return out_image    
-    
-    def forward_enc(self, source):
-        # Enc
-        F_s = self.block0(source)
-        for i in range(self.layers - 1):
-            model = getattr(self, 'encoder' + str(i))
-            F_s = model(F_s)
-        # Resblocks
-        for i in range(self.num_blocks):
-            model = getattr(self, 'mblock' + str(i))
-            F_s = model(F_s)
-
-        return F_s
-
-    def forward_dec(self, feature):
+        # feature = self.feat_up(inputs)
+        feature = self.resblock(inputs)
         # Decoder
         for i in range(self.layers):
             model = getattr(self, 'decoder' + str(i))
@@ -428,6 +391,7 @@ class DECGenerator(nn.Module):
         out_image = self.outconv(feature)
 
         return out_image
+    
 
 ##############################################################################
 # Discriminator

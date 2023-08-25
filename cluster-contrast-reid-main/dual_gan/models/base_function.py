@@ -308,6 +308,36 @@ class ResBlockDecoder(nn.Module):
         return out
 
 
+class ResUP12Block(nn.Module):
+    """
+    Define a decoder block
+    """
+    def __init__(self, input_nc, output_nc, hidden_nc=None, norm_layer=nn.BatchNorm2d, nonlinearity= nn.LeakyReLU(),
+                 use_spect=False, use_coord=False):
+        super(ResUP12Block, self).__init__()
+
+        hidden_nc = output_nc if hidden_nc is None else hidden_nc
+        # H out =(Hin −1)×stride[0]−2×padding[0]+dilation[0]×(kernel_size[0]−1)+output_padding[0]+1
+        # h-1-2+1+1+1 s=1, k=2, p=1, op=1
+        # 4(h-1)-2+2+1+1 s=1, k=2, p=1, op=1
+        #  O = （I - K + 2P）/ S +1
+        conv1 = spectral_norm(nn.Conv2d(input_nc, hidden_nc, kernel_size=1, stride=1, padding=0), use_spect)
+        conv2 = spectral_norm(nn.ConvTranspose2d(hidden_nc, output_nc, kernel_size=(5, 3), stride=(4, 2), padding=1, output_padding=1), use_spect)
+        bypass = spectral_norm(nn.ConvTranspose2d(input_nc, output_nc, kernel_size=(5, 3), stride=(4, 2), padding=1, output_padding=1), use_spect)
+
+        if type(norm_layer) == type(None):
+            self.model = nn.Sequential(nonlinearity, conv1, nonlinearity, conv2,)
+        else:
+            self.model = nn.Sequential(norm_layer(input_nc), nonlinearity, conv1, norm_layer(hidden_nc), nonlinearity, conv2,)
+
+        self.shortcut = nn.Sequential(bypass)
+
+    def forward(self, x):
+        out = self.model(x) + self.shortcut(x)
+
+        return out
+
+
 class ResBlockEncoderOptimized(nn.Module):
     """
     Define an Encoder block for the first layer of the discriminator

@@ -46,7 +46,7 @@ class TrainOptions(BaseOptions):
         # training configs
         self.parser.add_argument('--seed', type=int, default=1)
         self.parser.add_argument('--print-freq', type=int, default=10)
-        self.GAN_group.add_argument('--vis-step', type=int, default=5)
+        self.GAN_group.add_argument('--vis-step', type=int, default=2)
         self.CC_group.add_argument('--eval-step', type=int, default=10)
         self.CC_group.add_argument('--temp', type=float, default=0.05,
                             help="temperature for scaling contrastive loss")

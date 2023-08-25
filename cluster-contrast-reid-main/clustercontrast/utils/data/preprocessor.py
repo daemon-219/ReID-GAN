@@ -53,7 +53,7 @@ class Preprocessor(Dataset):
                  transform=None, 
                 #  gan_transform=None, 
                 #  gan_transform_p=None,
-                 DPTN_transform=None):
+                 GAN_transform=None):
         
         super(Preprocessor, self).__init__()
         self.dataset = dataset
@@ -70,7 +70,7 @@ class Preprocessor(Dataset):
                 self.load_size = load_size
             self.annotation_file = pd.read_csv(pose_file, sep=':')
             self.annotation_file = self.annotation_file.set_index('name')
-            self.trans = DPTN_transform
+            self.trans = GAN_transform
 
             self.pid_name = defaultdict(list)
 

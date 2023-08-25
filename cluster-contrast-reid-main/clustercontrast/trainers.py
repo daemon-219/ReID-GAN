@@ -148,32 +148,49 @@ class ClusterContrastWithGANTrainer(object):
             """
             TODO: postive samples:
             """
-            self.gan.set_input(inputs[1])
-            fake_image_s, fake_image_t = self.gan.synthesize(is_train=True)
-
-            # (batch, feature_dim) = (b, 2048)
-
+            # forward
+            f_out, f_map = self._forward(reid_inputs)
+            fake_image = self.gan.synthesize(f_map.detach().clone())
             self.encoder.eval()
-            f_real_out = self._forward(my_transform(self.gan.source_image))
-            f_syn_out = self._forward(my_normalize(fake_image_s))
-
+            f_ex, _ = self._forward(my_transform(fake_image))
             self.encoder.train()
-            # get fake image gradient
-            loss_ori = self.memory(f_real_out, labels, update=False)
-            net_parameters = list(params for params in self.encoder.parameters() if params.requires_grad)
-            gw_real = torch.autograd.grad(loss_ori, net_parameters, retain_graph=True)
-            gw_real = list((_.detach().clone() for _ in gw_real))
+            # self.encoder.eval()
+            # f_real_out = self._forward(my_transform(self.gan.source_image))
+            # f_syn_out = self._forward(my_normalize(fake_image_s))
 
-            # do not update cluster memory for synthesized inputs
-            loss_syn = self.memory(f_syn_out, labels, update=False)
-            gw_syn = torch.autograd.grad(loss_syn, net_parameters, create_graph=True)
+            # self.encoder.train()
+            # f_tar = torch.cat([f_tar_p, f_tar_n], dim=0)
+            # loss_cl = self.cl_loss(f_out, self.encoder.module.predictor(f_tar))  
+            # loss_cl = self.cl_loss(f_out, f_tar) 
+            
+            loss = self.memory(f_out, labels, ex_f=f_ex)
 
-            f_out = self._forward(reid_inputs)
-            loss = self.memory(f_out, labels)
-            gm_loss = self.opt.lambda_nl * match_loss(gw_syn, gw_real)
+            # self.gan.set_input(inputs[1])
+            # fake_image_s, fake_image_t = self.gan.synthesize(is_train=True)
+
+            # # (batch, feature_dim) = (b, 2048)
+
+            # self.encoder.eval()
+            # f_real_out = self._forward(my_transform(self.gan.source_image))
+            # f_syn_out = self._forward(my_normalize(fake_image_s))
+
+            # self.encoder.train()
+            # # get fake image gradient
+            # loss_ori = self.memory(f_real_out, labels, update=False)
+            # net_parameters = list(params for params in self.encoder.parameters() if params.requires_grad)
+            # gw_real = torch.autograd.grad(loss_ori, net_parameters, retain_graph=True)
+            # gw_real = list((_.detach().clone() for _ in gw_real))
+
+            # # do not update cluster memory for synthesized inputs
+            # loss_syn = self.memory(f_syn_out, labels, update=False)
+            # gw_syn = torch.autograd.grad(loss_syn, net_parameters, create_graph=True)
+
+            # f_out = self._forward(reid_inputs)
+            # loss = self.memory(f_out, labels)
+            # gm_loss = self.opt.lambda_nl * match_loss(gw_syn, gw_real)
             
             # backward for adaptor
-            self.gan.optimize_parameters_adaptor(gm_loss)
+            # self.gan.optimize_parameters_adaptor(gm_loss)
 
             optimizer.zero_grad()
             loss.backward()
@@ -196,16 +213,16 @@ class ClusterContrastWithGANTrainer(object):
                 print('Epoch: [{}][{}/{}]\t'
                       'Time {:.3f} ({:.3f})\t'
                       'Data {:.3f} ({:.3f})\t'
-                      'Loss {:.3f} ({:.3f})\t'
-                      'Loss GM {:.3f}\n'
+                      'Loss {:.3f} ({:.3f})\n'
+                    #   'Loss GM {:.3f}\n'
                       .format(epoch, i + 1, len(data_loader),
                               batch_time.val, batch_time.avg,
                               data_time.val, data_time.avg,
                               losses.val, losses.avg,
-                              gm_loss.item()
+                            #   gm_loss.item()
                               ))
                 
-    def train_all(self, epoch, data_loader, optimizer, dis_metric='ours', print_freq=10, train_iters=400, acc_iters=0):
+    def train_all(self, epoch, data_loader, optimizer, print_freq=10, train_iters=400, acc_iters=0):
         print("train both gan and reid")
         self.encoder.train()
 
@@ -225,29 +242,33 @@ class ClusterContrastWithGANTrainer(object):
             reid_inputs, labels, indexes = self._parse_data(inputs[0])
 
             # forward
-            f_out = self._forward(reid_inputs)
+            f_out, f_map = self._forward(reid_inputs)
             # print("f_out shape: {}".format(f_out.shape))
             # compute loss with the hybrid memory
             # loss = self.memory(f_out, indexes)
             loss_ori = self.memory(f_out, labels)
 
-            self.gan.set_input(inputs[1])
-            # fake_image_n = self.gan.synthesize()
-            fake_image_n = self.gan.synthesize().detach().clone()
+            self.gan.set_input(inputs[1]['Xs'])
+            # self.gan.set_input(my_resize(reid_inputs, size=(128, 64)))
+            self.encoder.eval()
+            # _, f_map = self._forward(my_transform(self.gan.source_image))
+            fake_image = self.gan.synthesize(f_map.detach().clone())
+            # fake_image_n = self.gan.synthesize().detach().clone()
+            self.encoder.train()
 
             """
             TODO: do transform here
             """
-            postive_pair = my_transform(self.gan.target_image, (reid_inputs.shape[2], reid_inputs.shape[3]))
-            fake_image_n = my_transform(fake_image_n, (reid_inputs.shape[2], reid_inputs.shape[3]))
-            input_pairs = torch.cat([postive_pair, fake_image_n], dim=0)
-            with torch.no_grad():
-                self.encoder.eval()
-                # f_tar_p = self._forward(postive_pair)
-                # f_tar_n = self._forward(fake_image_n)
-                f_tar = self._forward(input_pairs)
+            # postive_pair = my_transform(self.gan.target_image, (reid_inputs.shape[2], reid_inputs.shape[3]))
+            # fake_image_n = my_transform(fake_image_n, (reid_inputs.shape[2], reid_inputs.shape[3]))
+            # input_pairs = torch.cat([postive_pair, fake_image_n], dim=0)
+            # with torch.no_grad():
+            #     self.encoder.eval()
+            #     # f_tar_p = self._forward(postive_pair)
+            #     # f_tar_n = self._forward(fake_image_n)
+            #     f_tar = self._forward(input_pairs)
 
-            self.encoder.train()
+            # self.encoder.train()
 
             # self.encoder.num_feature
             # 2048
@@ -256,21 +277,20 @@ class ClusterContrastWithGANTrainer(object):
             # loss_neg = self.memory(f_tar_n, labels, update=False)
 
             # TODO: Gradient Matching Loss is too large!!!
-            """
+                       
+            # self.encoder.eval()
+            f_syn_out, _ = self._forward(my_transform(fake_image))
+            # self.encoder.train()
+            # get fake image gradient
             net_parameters = list(params for params in self.encoder.parameters() if params.requires_grad)
-            gw_real = torch.autograd.grad(loss, net_parameters, retain_graph=True)
+            gw_real = torch.autograd.grad(loss_ori, net_parameters, retain_graph=True)
             gw_real = list((_.detach().clone() for _ in gw_real))
 
-            f_syn_out = self._forward(fake_image_s)
             # do not update cluster memory for synthesized inputs
             loss_syn = self.memory(f_syn_out, labels, update=False)
             gw_syn = torch.autograd.grad(loss_syn, net_parameters, create_graph=True)
 
-            gm_loss = match_loss(gw_syn, gw_real, dis_metric)
-
-            self.gan.optimize_parameters_generated(gm_loss)
-            """
-
+            gm_loss = self.opt.lambda_nl * match_loss(gw_syn, gw_real, self.opt.dis_metric)
             
             # q = self.encoder.module.predictor(f_tar) 
             # k = f_out.detach().clone()
@@ -280,7 +300,7 @@ class ClusterContrastWithGANTrainer(object):
 
             # TODO: do id-level contrastive learning
             # f_tar = torch.cat([f_tar_p, f_tar_n], dim=0)
-            loss_cl = self.cl_loss(f_out, self.encoder.module.predictor(f_tar))  
+            # loss_cl = self.cl_loss(f_out, self.encoder.module.predictor(f_tar))  
             # loss_cl = self.cl_loss(f_out, f_tar)  
 
             # all backward for gan
@@ -296,15 +316,22 @@ class ClusterContrastWithGANTrainer(object):
             """
             Finished
             """
-            loss = self.opt.lambda_ori * loss_ori + self.opt.lambda_cl * loss_cl
-            # loss = loss_ori 
+
+            # loss = self.opt.lambda_ori * loss_ori + self.opt.lambda_cl * loss_cl
+
+            # self.gan.get_loss_G()
+            # loss = loss_ori + self.opt.lambda_nl * self.gan.loss_G
+            loss = loss_ori
+
+            self.gan.optimize_generated(gm_loss)
 
             # ReID and GAN opt
-            self.gan.optimize_generated()
-        
             optimizer.zero_grad()
+            # loss.backward(retain_graph=True)
             loss.backward()
             optimizer.step()
+
+            # self.gan.optimize_generated(gm_loss)
 
             losses.update(loss.item())
 
@@ -329,7 +356,7 @@ class ClusterContrastWithGANTrainer(object):
                 # # neg loss bp into gan
                 # self.writer.add_scalar('Loss/nl_loss', loss_neg.item())
                 # cl loss from hard negative samples
-                self.writer.add_scalar('Loss/cl_loss', loss_cl.item())
+                # self.writer.add_scalar('Loss/cl_loss', loss_cl.item())
 
             # print log
             batch_time.update(time.time() - end)
@@ -340,16 +367,18 @@ class ClusterContrastWithGANTrainer(object):
                       'Time {:.3f} ({:.3f})\t'
                       'Data {:.3f} ({:.3f})\t'
                       'Loss {:.3f} ({:.3f})\t'
-                      'CLLoss: {:.3f}\t '
+                    #   'CLLoss: {:.3f}\t '
                     #   'NLLoss: {:.3f}\t '
-                      'GANLoss: G:{:.3f} D:{:.3f}\n '
+                      'GANLoss: G:{:.3f} D:{:.3f}\t '
+                      'Loss GM {:.3f}\n'
                       .format(epoch, i + 1, len(data_loader),
                               batch_time.val, batch_time.avg,
                               data_time.val, data_time.avg,
                               losses.val, losses.avg,
-                              loss_cl.item(),
+                            #   loss_cl.item(),
                             #   loss_neg.item(),
-                              gan_losses['G'], gan_losses['D']
+                              gan_losses['G'], gan_losses['D'],
+                              gm_loss.item()
                               ))
 
     def train_reid(self, epoch, data_loader, optimizer, print_freq=10, train_iters=400, acc_iters=0):
@@ -408,7 +437,7 @@ class ClusterContrastWithGANTrainer(object):
         return imgs.cuda(), pids.cuda(), indexes.cuda()
 
     def _forward(self, inputs):
-        return self.encoder(inputs)
+        return self.encoder.module.train_forward(inputs)
     
     def contrastive_loss(self, q, k):
         # normalize
@@ -421,12 +450,13 @@ class ClusterContrastWithGANTrainer(object):
         return nn.CrossEntropyLoss()(logits, labels) * 2 * self.T    
     
     def cl_loss(self, q, k, group_size=16):
+        # input: q(n, c), k(2n, c)
         # normalize
         q = nn.functional.normalize(q, dim=1)
         k = nn.functional.normalize(k, dim=1)
         # Einstein sum is more intuitive
         logits = torch.einsum('n c, m c -> n m', [q, k]) / self.T
-        # group sum 
+        # group sum (n, m // group_size)
         logits = torch.sum(torch.stack(torch.split(logits, group_size, dim=1), dim=1), dim=-1)
         N = logits.shape[-1] // 2  # batch size per GPU
         labels = torch.repeat_interleave(torch.arange(N, dtype=torch.long), group_size, dim=0).cuda()

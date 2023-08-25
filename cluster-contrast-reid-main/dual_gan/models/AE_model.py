@@ -45,9 +45,11 @@ class AEModel(BaseModel):
         self.model_names = ['G']
         # self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image', 'fake_image_n']
         self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image']
-
-        self.net_G = networks.define_G(opt, image_nc=opt.image_nc, pose_nc=opt.pose_nc, ngf=64, img_f=512,
-                                       encoder_layer=3, norm=opt.norm, activation='LeakyReLU',
+        self.model_gen = opt.model_gen
+        num_feats = 2048 if opt.model_gen == 'DEC' else 256
+        G_layer = 3 if opt.model_gen == 'DEC' else 3
+        self.net_G = networks.define_G(opt, image_nc=opt.image_nc, pose_nc=opt.pose_nc, ngf=64, img_f=num_feats,
+                                       encoder_layer=G_layer, norm=opt.norm, activation='LeakyReLU',
                                        use_spect=opt.use_spect_g, use_coord=opt.use_coord, output_nc=3, num_blocks=3)
         
         self.use_adp = opt.use_adp
@@ -111,25 +113,30 @@ class AEModel(BaseModel):
             print('model loaded from pretrained')
             self.load_networks(opt.which_epoch)
 
-    def set_input(self, input, b_id=None):
-        self.input = input
+    def set_input(self, inputs, b_id=None):
+        self.input = inputs
         if b_id is not None:
             # get input from b_id for each group
-            source_image = torch.index_select(input['Xs'], 0, b_id)
-            target_image = torch.index_select(input['Xt'], 0, b_id)
+            source_image = torch.index_select(inputs, 0, b_id)
+            # target_image = torch.index_select(input['Xt'], 0, b_id)
         else:
-            source_image = input['Xs']
-            target_image = input['Xt']
+            source_image = inputs
+            # target_image = input['Xt']
         self.source_image = source_image.cuda()
-        self.target_image = target_image.cuda()
+        # self.target_image = target_image.cuda()
 
     def forward(self):
         # Encode Inputs
         self.fake_image = self.net_G(self.source_image)
     
-    def synthesize(self, is_train=False):
-        self.fake_image = self.net_A(self.net_G(self.source_image))
-        return self.fake_image, None
+    def synthesize(self, features, is_train=False):
+        # features = self.feature_fusion(features, torch.flip(features, dims=[0]))
+        self.fake_image = self.net_G(features)
+        return self.fake_image
+            
+        # self.fake_image = self.net_A(self.net_G(self.source_image))
+        # return self.fake_image, None
+        
         # F_s = self.net_G.module.forward_enc(self.source_image)
 
         # # print(F_s.shape)
@@ -219,17 +226,28 @@ class AEModel(BaseModel):
 
         return loss_app_gen, loss_ad_gen, loss_style_gen, loss_content_gen
 
-    def backward_G(self, loss_nl):
+    def backward_G(self, loss_nl=None):
         base_function._unfreeze(self.net_D)
 
         self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
         self.loss_G = self.loss_app_gen + self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
+        # self.loss_G = self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
         # loss bp from reid part
         if loss_nl is not None:
-           self.loss_G = self.loss_G + self.opt.lambda_nl * loss_nl 
-         
+           self.loss_G = self.loss_G + loss_nl 
+        
         self.loss_G.backward()
 
+    def get_loss_G(self, loss_nl=None):
+        base_function._unfreeze(self.net_D)
+
+        self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
+        self.loss_G = self.loss_app_gen + self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
+        # self.loss_G = self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
+        # loss bp from reid part
+        if loss_nl is not None:
+           self.loss_G = self.loss_G + loss_nl 
+        
     def optimize_parameters(self):
         self.forward()
 
@@ -248,6 +266,7 @@ class AEModel(BaseModel):
 
         self.optimizer_G.zero_grad()
         self.backward_G(loss_nl)
+        # self.loss_G.backward()
         self.optimizer_G.step()
 
     def optimize_parameters_adaptor(self, loss):

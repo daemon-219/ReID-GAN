@@ -14,8 +14,8 @@ def my_pad(X, pad=10):
 def my_normalize(X, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
     return F.normalize(X, mean, std)
 
-def my_transform(X):
-    return my_normalize(my_resize(X))
+def my_transform(X, size=(256, 128)):
+    return my_normalize(my_resize(X, size))
 
 def pair_rand_flip(Xa, Xb, flip_prob=0.5):
     randf = torch.rand(Xa.size(0), 1, 1, 1, device=Xa.device)
