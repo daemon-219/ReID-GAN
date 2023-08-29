@@ -102,9 +102,9 @@ class ClusterMemory(nn.Module, ABC):
             ex_f = F.normalize(ex_f, dim=1).cuda()
             # t extend samples, outputs_ex:(n, t)
             outputs_ex = inputs.mm(ex_f.t())
-            mask = torch.ones_like(outputs_ex).cuda() - torch.eye(ex_f.shape[0]).cuda()
+            outputs_ex += (-10000.0 * torch.eye(ex_f.shape[0])).cuda()
             # outputs:(n, m+t)
-            outputs = torch.cat([outputs, mask*outputs_ex], dim=1)
+            outputs = torch.cat([outputs, outputs_ex], dim=1)
 
         outputs /= self.temp
         loss = F.cross_entropy(outputs, targets)

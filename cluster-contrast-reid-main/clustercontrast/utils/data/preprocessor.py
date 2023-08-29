@@ -120,7 +120,6 @@ class Preprocessor(Dataset):
             reid_img = self.transform(img)
 
         return [reid_img, fname, pid, camid, index], self.get_DPTN_input(fname, pid)
-
     def get_DPTN_input(self, fname, pid):
         fpath = fname
         if self.root is not None:

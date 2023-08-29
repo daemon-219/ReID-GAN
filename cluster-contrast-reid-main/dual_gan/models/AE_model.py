@@ -42,6 +42,7 @@ class AEModel(BaseModel):
         BaseModel.__init__(self, opt)
         self.old_size = opt.old_size
         self.loss_names = ['app_gen', 'content_gen', 'style_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
+        # self.loss_names = ['content_gen', 'style_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
         self.model_names = ['G']
         # self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image', 'fake_image_n']
         self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image']
@@ -230,23 +231,22 @@ class AEModel(BaseModel):
         base_function._unfreeze(self.net_D)
 
         self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
-        self.loss_G = self.loss_app_gen + self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
-        # self.loss_G = self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
+        # self.loss_G = self.loss_app_gen + self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
+        self.loss_G = self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
         # loss bp from reid part
         if loss_nl is not None:
            self.loss_G = self.loss_G + loss_nl 
         
         self.loss_G.backward()
 
-    def get_loss_G(self, loss_nl=None):
-        base_function._unfreeze(self.net_D)
+    # def get_loss_G(self, loss_nl=None):
+    #     base_function._unfreeze(self.net_D)
 
-        self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
-        self.loss_G = self.loss_app_gen + self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
-        # self.loss_G = self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
-        # loss bp from reid part
-        if loss_nl is not None:
-           self.loss_G = self.loss_G + loss_nl 
+    #     self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
+    #     self.loss_G = self.loss_app_gen + self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
+    #     # loss bp from reid part
+    #     if loss_nl is not None:
+    #        self.loss_G = self.loss_G + loss_nl 
         
     def optimize_parameters(self):
         self.forward()

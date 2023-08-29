@@ -74,44 +74,10 @@ class ResNet(nn.Module):
         if not pretrained:
             self.reset_params()
 
-    def forward(self, x):
+    def forward(self, x, in_trainer=False):
         bs = x.size(0)
         x = self.base(x)
 
-        x = self.gap(x)
-        x = x.view(x.size(0), -1)
-
-        if self.cut_at_pooling:
-            return x
-
-        if self.has_embedding:
-            bn_x = self.feat_bn(self.feat(x))
-        else:
-            bn_x = self.feat_bn(x)
-
-        if (self.training is False):
-            bn_x = F.normalize(bn_x)
-            return bn_x
-
-        if self.norm:
-            bn_x = F.normalize(bn_x)
-        elif self.has_embedding:
-            bn_x = F.relu(bn_x)
-
-        if self.dropout > 0:
-            bn_x = self.drop(bn_x)
-
-        if self.num_classes > 0:
-            prob = self.classifier(bn_x)
-        else:
-            return bn_x
-
-        return prob
-    
-    def train_forward(self, x):
-        bs = x.size(0)
-        x = self.base(x)
-        
         # get feature map for synthesis
         f_map = x
 
@@ -125,6 +91,10 @@ class ResNet(nn.Module):
             bn_x = self.feat_bn(self.feat(x))
         else:
             bn_x = self.feat_bn(x)
+
+        if (self.training is False) and (in_trainer is False):
+            bn_x = F.normalize(bn_x)
+            return bn_x
 
         if self.norm:
             bn_x = F.normalize(bn_x)

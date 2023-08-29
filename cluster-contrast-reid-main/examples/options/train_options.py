@@ -54,7 +54,7 @@ class TrainOptions(BaseOptions):
 
         '''additional args'''
         self.AL_group.add_argument('--warmup_epo', type=int, default=0, help='warm up epochs for reid')
-        self.AL_group.add_argument('--lambda_nl', type=float, default=0.3, help='weight of following loss for gan')
+        self.AL_group.add_argument('--lambda_nl', type=float, default=1., help='weight of following loss for gan')
         self.AL_group.add_argument('--lambda_ori', type=float, default=1., help='weight of following cl loss for reid')
         self.AL_group.add_argument('--lambda_cl', type=float, default=1., help='weight of following cl loss for reid')
         self.AL_group.add_argument('--dis_metric', choices=['ours', 'mse', 'cos'], type=str, default='ours', help='loss types of gradient matching')

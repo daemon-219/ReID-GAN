@@ -64,6 +64,7 @@ def get_train_loader(opt, dataset, height, width, batch_size, workers,
     normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
     
+    GAN_transform = None
     if with_pose:
         # basic size transform, put data augmentations in trainer 
         # (height, weight): (256, 128)
@@ -75,10 +76,19 @@ def get_train_loader(opt, dataset, height, width, batch_size, workers,
 
         # prepare for transformation
         # opt.loadSize: (128, 64)
-        DPTN_transform = T.Compose([
+
+        # DPTN
+        # GAN_transform = T.Compose([
+        #     T.ToTensor(),
+        #     T.Normalize((0.5, 0.5, 0.5),(0.5, 0.5, 0.5))
+        # ])        
+        
+        # DEC AE
+        GAN_transform = T.Compose([
             T.ToTensor(),
-            T.Normalize((0.5, 0.5, 0.5),(0.5, 0.5, 0.5))
+            normalizer
         ])
+        
         
     train_transformer = T.Compose([
         T.Resize((height, width), interpolation=InterpolationMode.BICUBIC),
@@ -103,7 +113,7 @@ def get_train_loader(opt, dataset, height, width, batch_size, workers,
     train_loader = IterLoader(
         DataLoader(Preprocessor(train_set, root=dataset.images_dir, pose_file=dataset.train_pose_dir, 
                                 with_pose=with_pose, load_size=opt.loadSize,
-                                transform=train_transformer, DPTN_transform=DPTN_transform),
+                                transform=train_transformer, GAN_transform=GAN_transform),
                    batch_size=batch_size, num_workers=workers, sampler=sampler,
                    shuffle=not rmgs_flag, pin_memory=True, drop_last=True), length=iters)
     return train_loader
@@ -289,7 +299,7 @@ def main_worker(opt):
 
         train_loader = get_train_loader(opt, dataset, opt.height, opt.width,
                                         opt.batch_size, opt.workers, opt.num_instances, iters,
-                                        with_pose=opt.with_gan, trainset=pseudo_labeled_dataset, no_cam=opt.no_cam)
+                                        with_pose=opt.gan_train, trainset=pseudo_labeled_dataset, no_cam=opt.no_cam)
 
         train_loader.new_epoch()
 
@@ -298,8 +308,7 @@ def main_worker(opt):
         """
         if (epoch + 1) > opt.warmup_epo: 
             if opt.gan_train:
-                trainer.train_all(epoch, train_loader, optimizer,
-                            dis_metric=opt.dis_metric, print_freq=opt.print_freq, 
+                trainer.train_all(epoch, train_loader, optimizer, print_freq=opt.print_freq, 
                             train_iters=len(train_loader), acc_iters=acc_iters)
             else:
                 trainer.train(epoch, train_loader, optimizer, print_freq=opt.print_freq, 
@@ -343,7 +352,7 @@ def main_worker(opt):
                 if (epoch + 1) % opt.vis_step == 0 or (epoch == opt.epochs - 1):
                     # visualize gan results 
                     # GAN_model.visual_names = ['source_image', 'target_image', 'fake_image', 'fake_image_n']
-                    GAN_model.visual_names = ['source_image', 'fake_image']
+                    GAN_model.visual_names = ['source_image', 'target_image', 'fake_image']
                     visualizer.display_current_results(GAN_model.get_current_visuals(), epoch)
                     if hasattr(GAN_model, 'distribution'):
                         visualizer.plot_current_distribution(GAN_model.get_current_dis())
