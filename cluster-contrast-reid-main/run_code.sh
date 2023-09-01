@@ -1,13 +1,14 @@
 # cd /home/mmc_zhaojiacheng/project/people_image/ReID_GAN/cluster-contrast-reid-main/
 
 export PYTHONPATH=$PYTHONPATH:/home/mmc_zhaojiacheng/project/people_image/ReID_GAN/cluster-contrast-reid-main/ 
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 python examples/cluster_contrast_gan_train_usl_infomap.py --with_gan --gan_train --model AE --model_gen DEC \
-    --lambda_nl 1. --eval-step 1 --vis-step 1 -b 256 -a resnet50 -d market1501 --iters 200 --momentum 0.1 --eps 0.6 --num-instances 16 
+    --load_pretrain examples/Logs/dec_warmup_logs/AE/AE_CC_market_test \
+    --lambda_nl 1. --eval-step 1 --vis-step 2 -b 128 -a resnet50 -d market1501 --iters 200 --momentum 0.1 --eps 0.6 --num-instances 16 
     
 # python examples/cluster_contrast_gan_train_usl_infomap.py --with_gan --use_adp --model AE \
 #     --load_pretrain examples/pretrained/market_AE --eval-step 1  --dis_metric cos \
-#     --gan_lr 0.002 --gan_lr_policy step --lr-step-size 20 --lambda_nl 1 -b 64 -a resnet50 -d market1501 --iters 200 --momentum 0.1 --eps 0.6 --num-instances 16 
+#     --gan_lr 0.002 --gan_lr_policy step --gan_lr_policy exponent --lr-step-size 20 --lambda_nl 1 -b 64 -a resnet50 -d market1501 --iters 200 --momentum 0.1 --eps 0.6 --num-instances 16 
     
 # python examples/cluster_contrast_gan_train_usl_infomap.py --with_gan --gan_train --model AE --continue_train \
 #     --load_pretrain examples/pretrained/market_AE --reid_pretrain examples/Logs/logs \
