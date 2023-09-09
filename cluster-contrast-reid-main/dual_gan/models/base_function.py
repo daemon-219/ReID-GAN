@@ -96,7 +96,8 @@ def init_net(net, init_type='normal'):
 
     if torch.cuda.is_available():
         net.cuda()
-        net = torch.nn.DataParallel(net)
+        # net = torch.nn.DataParallel(net)
+        # net = torch.nn.DataParallel(net, output_device=2)
     init_weights(net, init_type)
     return net
 

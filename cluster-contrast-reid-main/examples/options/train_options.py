@@ -57,6 +57,6 @@ class TrainOptions(BaseOptions):
         self.AL_group.add_argument('--lambda_nl', type=float, default=1., help='weight of following loss for gan')
         self.AL_group.add_argument('--lambda_ori', type=float, default=1., help='weight of following cl loss for reid')
         self.AL_group.add_argument('--lambda_cl', type=float, default=1., help='weight of following cl loss for reid')
-        self.AL_group.add_argument('--dis_metric', choices=['ours', 'mse', 'cos'], type=str, default='ours', help='loss types of gradient matching')
+        self.AL_group.add_argument('--dis_metric', choices=['ours', 'mse', 'cos', 'cos_m'], type=str, default='ours', help='loss types of gradient matching')
         self.AL_group.add_argument('--cl_loss', action='store_true', help='if specified, train reid with added cl')
         self.AL_group.add_argument('--cl_temp', type=float, default=1.0, help='temperature of contrastive learning')

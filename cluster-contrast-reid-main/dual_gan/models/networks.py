@@ -324,6 +324,7 @@ class AEGenerator(nn.Module):
 
     def forward(self, inputs):
         F_s = self.forward_enc(inputs)
+        # print(F_s.shape)
         out_image =self.forward_dec(F_s)
         return out_image    
     

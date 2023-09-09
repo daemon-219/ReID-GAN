@@ -37,6 +37,14 @@ class ResNet(nn.Module):
         self.base = nn.Sequential(
             resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool,
             resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4)
+        
+        # resnet component
+        self.resnet_layer0 = nn.Sequential(
+            resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool)
+        self.resnet_layer1 = resnet.layer1
+        self.resnet_layer2 = resnet.layer2
+        self.resnet_layer3 = resnet.layer3
+        self.resnet_layer4 = resnet.layer4
 
         self.gap = build_pooling_layer(pooling_type)
 
@@ -74,12 +82,10 @@ class ResNet(nn.Module):
         if not pretrained:
             self.reset_params()
 
-    def forward(self, x, in_trainer=False):
+    # @torch.cuda.amp.autocast()
+    def forward(self, x):
         bs = x.size(0)
         x = self.base(x)
-
-        # get feature map for synthesis
-        f_map = x
 
         x = self.gap(x)
         x = x.view(x.size(0), -1)
@@ -92,7 +98,7 @@ class ResNet(nn.Module):
         else:
             bn_x = self.feat_bn(x)
 
-        if (self.training is False) and (in_trainer is False):
+        if (self.training is False):
             bn_x = F.normalize(bn_x)
             return bn_x
 
@@ -107,9 +113,44 @@ class ResNet(nn.Module):
         if self.num_classes > 0:
             prob = self.classifier(bn_x)
         else:
-            return bn_x, f_map
+            return bn_x
 
         return prob
+    
+    # @torch.cuda.amp.autocast()
+    def forward_train(self, x, in_trainer=False):
+        bs = x.size(0)
+
+        x_0 = self.resnet_layer0(x)
+        x_1 = self.resnet_layer1(x_0)
+        x_2 = self.resnet_layer2(x_1)
+        x_3 = self.resnet_layer3(x_2)
+        x_4 = self.resnet_layer4(x_3)
+
+        # get feature map for synthesis
+        # f_map = x_4
+
+        x = self.gap(x_4)
+        x = x.view(x.size(0), -1)
+
+        if self.has_embedding:
+            bn_x = self.feat_bn(self.feat(x))
+        else:
+            bn_x = self.feat_bn(x)
+
+        # if (self.training is False) and (in_trainer is False):
+        #     bn_x = F.normalize(bn_x)
+        #     return bn_x
+
+        if self.norm:
+            bn_x = F.normalize(bn_x)
+        elif self.has_embedding:
+            bn_x = F.relu(bn_x)
+
+        if self.dropout > 0:
+            bn_x = self.drop(bn_x)
+
+        return x_0, x_1, x_2, x_3, x_4, bn_x
 
     def reset_params(self):
         for m in self.modules():

@@ -8,6 +8,7 @@ from clustercontrast.utils.data.diff_augs import my_resize, my_transform, my_nor
 import os.path as osp
 import numpy as np
 import matplotlib.pyplot as plt
+from apex import amp
 
 
 class ClusterContrastTrainer(object):
@@ -247,110 +248,156 @@ class ClusterContrastWithGANTrainer(object):
             self.gan.set_input(inputs[1]['Xs'])
             self.gan.target_image = reid_inputs
 
-            # forward
-            f_out, f_map = self._forward(reid_inputs)
-            # fake_image = self.gan.synthesize(f_map)
-            fake_image = self.gan.synthesize(f_map.detach().clone())
-            self.encoder.eval()
-            # with torch.no_grad():
+            with torch.cuda.amp.autocast():
+
+                fr_0, fr_1, fr_2, fr_3, fr_4, f_out = self._forward(reid_inputs)
+                # print(torch.cuda.max_memory_allocated())
+                # fake_image = self.gan.synthesize(fr_4.detach().clone())
+                # fake_image = self.gan.synthesize()
+                # print(torch.cuda.max_memory_allocated())
+                # self.encoder.eval()
+                # ff_0, ff_1, ff_2, ff_3, ff_4, f_syn_out = self._forward(fake_image)
+                # print(torch.cuda.max_memory_allocated())
+                # self.encoder.train()
+
+                # frec_loss = torch.tensor(0.0).cuda()
+                # frec_loss += self.f_metric(fr_0.detach(), ff_0)
+                # frec_loss += self.f_metric(fr_1.detach(), ff_1)
+                # frec_loss += self.f_metric(fr_2.detach(), ff_2)
+                # frec_loss += self.f_metric(fr_3.detach(), ff_3)
+                # frec_loss += self.f_metric(fr_4.detach(), ff_4)
+                # frec_loss += self.f_metric(f_out.detach(), f_syn_out)
+                # print(torch.cuda.max_memory_allocated())
+
+                # # TODO: Gradient Matching Loss and feature reconstruction loss
+                # # calculate gradient matching 
+                # self.encoder.eval()
+                # f_real_out, f_map = self._forward(reid_inputs)
+                # fake_image = self.gan.synthesize(f_map.detach().clone())
+
+                # f_syn_out, _ = self._forward(fake_image)
+
+                # self.encoder.train()
+
+                # frec_loss = self.f_metric(f_syn_out, f_real_out.detach().clone())
+                        
+                # # do not update cluster memory for synthesized inputs
+                # loss_syn = self.memory(f_syn_out, labels, update=False)
+                # loss_ori = self.memory(f_real_out, labels, update=False)
+
+                # # get gradient
+                # net_parameters = list(params for params in self.encoder.parameters() if params.requires_grad)
+                # # print(net_parameters)
+                # gw_syn = torch.autograd.grad(loss_syn, net_parameters, create_graph=True)
+
+                # gw_real = torch.autograd.grad(loss_ori, net_parameters)
+                # gw_real = list((_.detach().clone() for _ in gw_real))
+
+                # gm_loss = match_loss(gw_real, gw_syn, self.opt.dis_metric)
+
+
+                # fake_image = self.gan.synthesize(f_map.detach().clone())
+                # self.encoder.eval()
+                # with torch.no_grad():
+                #     f_ex, _ = self._forward(fake_image)
                 # f_ex, _ = self._forward(my_transform(fake_image))
-            f_ex, _ = self._forward(fake_image)
-            self.encoder.train()
+                # f_ex, _ = self._forward(fake_image)
+                # self.encoder.train()
 
-            # frec_loss = self.opt.lambda_nl * self.f_metric(f_out.detach().clone(), f_ex)
-            frec_loss = self.opt.lambda_nl * self.contrastive_loss(f_ex, f_out.detach().clone())
+                # frec_loss = self.opt.lambda_nl * self.f_metric(f_out.detach().clone(), f_ex)
+                # frec_loss = self.opt.lambda_nl * self.contrastive_loss(f_ex, f_out.detach().clone())
 
-            loss = self.memory(f_out, labels, ex_f=f_ex.detach().clone())
+                # loss = self.memory(f_out, labels, ex_f=f_ex.detach().clone()) + frec_loss
+
+                # loss_ori = torch.sum(f_out)
+                
+                # print(f_out, f_ex)
+
+                """
+                TODO: do transform here
+                """
+                # postive_pair = my_transform(self.gan.target_image, (reid_inputs.shape[2], reid_inputs.shape[3]))
+                # fake_image_n = my_transform(fake_image_n, (reid_inputs.shape[2], reid_inputs.shape[3]))
+                # input_pairs = torch.cat([postive_pair, fake_image_n], dim=0)
+                # with torch.no_grad():
+                #     self.encoder.eval()
+                #     # f_tar_p = self._forward(postive_pair)
+                #     # f_tar_n = self._forward(fake_image_n)
+                #     f_tar = self._forward(input_pairs)
+
+                # self.encoder.train()
+
+                # self.encoder.num_feature
+                # 2048
+
+                # bp gan loss here
+                # loss_neg = self.memory(f_tar_n, labels, update=False)
+
+                # f_out, _= self._forward(reid_inputs)
+                # loss = self.memory(f_out, labels)
+                
+                # fake_image = self.gan.synthesize()
+
+                
+                # gm_loss = self.opt.lambda_nl * match_loss(gw_real, gw_real, self.opt.dis_metric, dis_dir=self.opt.logs_dir, num_it=acc_iters + i)
+                
+                # q = self.encoder.module.predictor(f_tar) 
+                # k = f_out.detach().clone()
+                # q = torch.mean(torch.stack(torch.tensor_split(q, 4, dim=0), dim=0), dim=1)
+                # k = torch.mean(torch.stack(torch.tensor_split(k, 4, dim=0), dim=0), dim=1)
+                # loss_cl = self.contrastive_loss(q, k)  
+
+                # TODO: do id-level contrastive learning
+                # f_tar = torch.cat([f_tar_p, f_tar_n], dim=0)
+                # loss_cl = self.cl_loss(f_out, self.encoder.module.predictor(f_tar))  
+                # loss_cl = self.cl_loss(f_out, f_tar)  
+
+                # all backward for gan
+                # self.gan.optimize_parameters_generated()
+                # self.gan.optimize_parameters_generated()
+                # self.gan.optimize_parameters()         
+                
+                # TODO: fake target as extended inputs
+                # ex_input = fake_image_t.detach().clone()
+                # f_ex_out = self._forward(ex_input)
+                # loss_ex = self.memory(f_tar, labels)
+                
+
+
+                # loss = self.opt.lambda_ori * loss_ori + self.opt.lambda_cl * loss_cl
+
+                # TODO: forward for reid
+                # f_out, _ = self._forward(reid_inputs)
+
+                # loss = self.memory(f_out, labels, ex_f=f_syn_out.detach().clone())
+                print(f_out.shape)
+                loss = self.memory(f_out, labels)
             
-            # print(f_out, f_ex)
-
-            """
-            TODO: do transform here
-            """
-            # postive_pair = my_transform(self.gan.target_image, (reid_inputs.shape[2], reid_inputs.shape[3]))
-            # fake_image_n = my_transform(fake_image_n, (reid_inputs.shape[2], reid_inputs.shape[3]))
-            # input_pairs = torch.cat([postive_pair, fake_image_n], dim=0)
-            # with torch.no_grad():
-            #     self.encoder.eval()
-            #     # f_tar_p = self._forward(postive_pair)
-            #     # f_tar_n = self._forward(fake_image_n)
-            #     f_tar = self._forward(input_pairs)
-
-            # self.encoder.train()
-
-            # self.encoder.num_feature
-            # 2048
-
-            # bp gan loss here
-            # loss_neg = self.memory(f_tar_n, labels, update=False)
-
-            # TODO: Gradient Matching Loss is too large!!!
-                       
-            # # self.encoder.eval()
-            # f_syn_out, _ = self._forward(my_transform(fake_image))
-            # # self.encoder.train()
-            # # get fake image gradient
-            # net_parameters = list(params for params in self.encoder.parameters() if params.requires_grad)
-            # gw_real = torch.autograd.grad(loss_ori, net_parameters, retain_graph=True)
-            # gw_real = list((_.detach().clone() for _ in gw_real))
-
-            # # do not update cluster memory for synthesized inputs
-            # loss_syn = self.memory(f_syn_out, labels, update=False)
-            # gw_syn = torch.autograd.grad(loss_syn, net_parameters, create_graph=True)
-
-            # gm_loss = self.opt.lambda_nl * match_loss(gw_syn, gw_real, self.opt.dis_metric)
-            
-            # q = self.encoder.module.predictor(f_tar) 
-            # k = f_out.detach().clone()
-            # q = torch.mean(torch.stack(torch.tensor_split(q, 4, dim=0), dim=0), dim=1)
-            # k = torch.mean(torch.stack(torch.tensor_split(k, 4, dim=0), dim=0), dim=1)
-            # loss_cl = self.contrastive_loss(q, k)  
-
-            # TODO: do id-level contrastive learning
-            # f_tar = torch.cat([f_tar_p, f_tar_n], dim=0)
-            # loss_cl = self.cl_loss(f_out, self.encoder.module.predictor(f_tar))  
-            # loss_cl = self.cl_loss(f_out, f_tar)  
-
-            # all backward for gan
-            # self.gan.optimize_parameters_generated()
-            # self.gan.optimize_parameters_generated()
-            # self.gan.optimize_parameters()         
-            
-            # TODO: fake target as extended inputs
-            # ex_input = fake_image_t.detach().clone()
-            # f_ex_out = self._forward(ex_input)
-            # loss_ex = self.memory(f_tar, labels)
-            
-            """
-            Finished
-            """
-
-            # loss = self.opt.lambda_ori * loss_ori + self.opt.lambda_cl * loss_cl
-
-            # self.gan.get_loss_G()
-            # loss = loss_ori + self.opt.lambda_nl * self.gan.loss_G
-            
-            # discriminator opt
-            self.gan.optimizer_D.zero_grad()
-            self.gan.backward_D()
-            self.gan.optimizer_D.step()
+            # # discriminator opt
+            # self.gan.optimizer_D.zero_grad()
+            # self.gan.backward_D()
+            # self.gan.optimizer_D.step()
 
             # generator and reid opt
             optimizer.zero_grad()
-            self.gan.optimizer_G.zero_grad()
+            # self.gan.optimizer_G.zero_grad()
 
             # loss.backward(retain_graph=True)
-            loss.backward()
-            self.gan.backward_G(frec_loss)
+            # self.gan.backward_G(self.opt.lambda_nl * frec_loss)
+            # self.gan.backward_G()
             
             # self.gan.optimize_generated()
             # self.gan.optimize_generated(frec_loss)
+            # self.gan.optimize_generated(gm_loss)
 
             # self.loss_G.backward()
-            self.gan.optimizer_G.step()
-            optimizer.step()
+            # loss.backward(retain_graph=True)
+            loss.backward()
+            # with amp.scale_loss(loss, optimizer) as scaled_loss:
+            #     scaled_loss.backward()
 
-            # self.gan.optimize_generated(gm_loss)
+            # self.gan.optimizer_G.step()
+            optimizer.step()
 
             losses.update(loss.item())
 
@@ -358,8 +405,8 @@ class ClusterContrastWithGANTrainer(object):
             if self.writer is not None:
                 # gan model
                 total_steps = acc_iters + i
-                gan_losses = self.gan.get_current_errors()
-                self.writer.add_scalar('Loss/G_loss', gan_losses['G'], total_steps)
+                # gan_losses = self.gan.get_current_errors()
+                # self.writer.add_scalar('Loss/G_loss', gan_losses['G'], total_steps)
                 # self.writer.add_scalar('Loss/D_loss', gan_losses['D'], total_steps)
 
                 # self.writer.add_scalar('Loss/app_gen_s', gan_losses['app_gen_s'], total_steps)
@@ -387,12 +434,12 @@ class ClusterContrastWithGANTrainer(object):
                 print('Epoch: [{}][{}/{}]\t'
                       'Time {:.3f} ({:.3f})\t'
                       'Data {:.3f} ({:.3f})\t'
-                      'Loss {:.3f} ({:.3f})\t'
+                      'Loss {:.3f} ({:.3f})\n'
                     #   'CLLoss: {:.3f}\t'
                     #   'NLLoss: {:.3f}\t'
-                    #   'GANLoss: G:{:.3f} D:{:.3f}\n'
-                      'GANLoss: G:{:.3f}\t'
-                      'FRECLoss: {:.3f}\n'
+                    #   'GANLoss: G:{:.3f} D:{:.3f}\t'
+                    #   'GANLoss: G:{:.3f}\t'
+                    #   'FRECLoss: {:.3f}\n'
                     #   'Loss GM {:.3f}\n'
                       .format(epoch, i + 1, len(data_loader),
                               batch_time.val, batch_time.avg,
@@ -401,8 +448,8 @@ class ClusterContrastWithGANTrainer(object):
                             #   loss_cl.item(),
                             #   loss_neg.item(),
                             #   gan_losses['G'], gan_losses['D'],
-                              gan_losses['G'],
-                              frec_loss.item(),
+                            #   gan_losses['G'],
+                            #   frec_loss.item(),
                             #   gm_loss.item()
                               ))
 
@@ -462,8 +509,8 @@ class ClusterContrastWithGANTrainer(object):
         return imgs.cuda(), pids.cuda(), indexes.cuda()
 
     def _forward(self, inputs):
-        # return self.encoder.module.train_forward(inputs)
-        return self.encoder(inputs, in_trainer=True)
+        return self.encoder.module.forward_train(inputs, in_trainer=True)
+        # return self.encoder(inputs, in_trainer=True)
     
     def contrastive_loss(self, q, k):
         # normalize
@@ -514,19 +561,19 @@ def match_loss(gw_syn, gw_real, dis_metric='ours', dis_dir=None, num_it=0):
     TODO: try contrastive loss
     """
     dis = torch.tensor(0.0).cuda()
-    dis_list={4:[], 3:[], 2:[], 1:[]}
+    # dis_list={4:[], 3:[], 2:[], 1:[]}
 
     if dis_metric == 'ours':
         for ig in range(len(gw_real)):
             gwr = gw_real[ig]
             gws = gw_syn[ig]
-            # dis += distance_wb(gwr, gws)
+            dis += distance_wb(gwr, gws)
 
-            dis_wb = distance_wb(gwr, gws)
-            if dis_wb:
-                print(gwr.shape, dis_wb)
-            dis += dis_wb
-            dis_list[len(gwr.shape)].append(dis_wb.cpu().detach().numpy())
+            # dis_wb = distance_wb(gwr, gws)
+            # # if dis_wb:
+            # #     print(gwr.shape, dis_wb)
+            # dis += dis_wb
+            # dis_list[len(gwr.shape)].append(dis_wb.cpu().detach().numpy())
 
     elif dis_metric == 'mse':
         gw_real_vec = []
@@ -548,10 +595,18 @@ def match_loss(gw_syn, gw_real, dis_metric='ours', dis_dir=None, num_it=0):
         gw_syn_vec = torch.cat(gw_syn_vec, dim=0)
         dis = 1 - torch.sum(gw_real_vec * gw_syn_vec, dim=-1) / (torch.norm(gw_real_vec, dim=-1) * torch.norm(gw_syn_vec, dim=-1) + 0.000001)
 
+    elif dis_metric == 'cos_m':
+        for ig in range(len(gw_real)):
+            if len(gw_real[ig].shape) == 4:
+                # only for conv layers
+                gw_real_vec = gw_real[ig].reshape(-1)
+                gw_syn_vec = gw_syn[ig].reshape(-1)
+                dis += 1 - torch.sum(gw_real_vec * gw_syn_vec, dim=-1) / (torch.norm(gw_real_vec, dim=-1) * torch.norm(gw_syn_vec, dim=-1) + 0.000001)
+
     else:
         raise('unknown distance function: %s'%dis_metric)
     
-    plot_loss(dis_list, dis_dir, num_it)
+    # plot_loss(dis_list, dis_dir, num_it)
 
     return dis
 

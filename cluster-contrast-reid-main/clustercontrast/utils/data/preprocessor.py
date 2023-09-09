@@ -120,6 +120,7 @@ class Preprocessor(Dataset):
             reid_img = self.transform(img)
 
         return [reid_img, fname, pid, camid, index], self.get_DPTN_input(fname, pid)
+    
     def get_DPTN_input(self, fname, pid):
         fpath = fname
         if self.root is not None:
@@ -132,26 +133,27 @@ class Preprocessor(Dataset):
 
         # strategy for sampling target images: randomly select
 
-        fpath_t = random.choice(self.pid_name[pid])
-        if self.root is not None:
-            fpath_t = osp.join(self.root, fpath_t)
-        Xt = Image.open(fpath_t).convert('RGB')
-        Xt_name = osp.split(fpath_t)[-1]
+        # fpath_t = random.choice(self.pid_name[pid])
+        # if self.root is not None:
+        #     fpath_t = osp.join(self.root, fpath_t)
+        # Xt = Image.open(fpath_t).convert('RGB')
+        # Xt_name = osp.split(fpath_t)[-1]
 
         # Xt = Xs.transpose(Image.FLIP_LEFT_RIGHT)
         # Pt = torch.flip(Ps, [2])
 
         Xs = F.resize(Xs, self.load_size)
-        Xt = F.resize(Xt, self.load_size)
+        # Xt = F.resize(Xt, self.load_size)
 
-        Ps = self.obtain_bone(Xs_name)
+        # Ps = self.obtain_bone(Xs_name)
         Xs = self.trans(Xs)
         
-        Pt = self.obtain_bone(Xt_name)
-        Xt = self.trans(Xt)
+        # Pt = self.obtain_bone(Xt_name)
+        # Xt = self.trans(Xt)
 
-        return {'Xs': Xs, 'Ps': Ps, 'Xt': Xt, 'Pt': Pt,
-                'Xs_path': Xs_name, 'Xt_path': Xt_name}
+        # return {'Xs': Xs, 'Ps': Ps, 'Xt': Xt, 'Pt': Pt,
+        #         'Xs_path': Xs_name, 'Xt_path': Xt_name}        
+        return {'Xs': Xs}
     
     def obtain_bone(self, name):
         string = self.annotation_file.loc[name]

@@ -6,6 +6,8 @@ import dual_gan.models as gan_models
 from clustercontrast import models
 from clustercontrast import datasets
 
+import torch.multiprocessing as mp
+
 class BaseOptions():
     def __init__(self):
         self.parser = argparse.ArgumentParser()
@@ -16,6 +18,13 @@ class BaseOptions():
         self.GAN_group = self.parser.add_argument_group(title='GAN options')
         self.CC_group = self.parser.add_argument_group(title='CC ReID options')
         self.AL_group = self.parser.add_argument_group(title='Gradient Matching options')
+        
+        # distributed
+        self.parser.add_argument('-n', '--nodes', default=1, type=int, metavar='N')
+        self.parser.add_argument('-g', '--gpus', default=4, type=int,
+                            help='number of gpus per node')
+        self.parser.add_argument('-nr', '--nr', default=0, type=int,
+                            help='ranking within the nodes')
 
         # path
         self.parser.add_argument('--name', type=str, default='AE_CC_market_test', help='name of the experiment. It decides where to store samples and models')  

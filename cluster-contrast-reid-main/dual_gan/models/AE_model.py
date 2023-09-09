@@ -42,13 +42,13 @@ class AEModel(BaseModel):
         BaseModel.__init__(self, opt)
         self.old_size = opt.old_size
         # self.loss_names = ['app_gen', 'content_gen', 'style_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
-        self.loss_names = ['app_gen', 'content_gen', 'style_gen', 'G']
+        self.loss_names = ['app_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
         self.model_names = ['G']
         # self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image', 'fake_image_n']
         self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image']
         self.model_gen = opt.model_gen
         num_feats = 2048 if opt.model_gen == 'DEC' else 256
-        G_layer = 4 if opt.model_gen == 'DEC' else 3
+        G_layer = 4 if opt.model_gen == 'DEC' else 4
         self.net_G = networks.define_G(opt, image_nc=opt.image_nc, pose_nc=opt.pose_nc, ngf=64, img_f=num_feats,
                                        encoder_layer=G_layer, norm=opt.norm, activation='LeakyReLU',
                                        use_spect=opt.use_spect_g, use_coord=opt.use_coord, output_nc=3, num_blocks=3)
@@ -74,7 +74,7 @@ class AEModel(BaseModel):
 
             self.GANloss = external_function.GANLoss(opt.gan_mode).to(opt.device)
             self.L1loss = torch.nn.L1Loss()
-            self.Vggloss = external_function.VGGLoss().to(opt.device)
+            # self.Vggloss = external_function.VGGLoss().to(opt.device)
 
             # define the optimizer
             self.optimizer_G = torch.optim.Adam(itertools.chain(
@@ -130,9 +130,13 @@ class AEModel(BaseModel):
         # Encode Inputs
         self.fake_image = self.net_G(self.source_image)
     
-    def synthesize(self, features, is_train=False):
+    # @torch.cuda.amp.autocast()
+    def synthesize(self, features=None, is_train=False):
         # features = self.feature_fusion(features, torch.flip(features, dims=[0]))
-        self.fake_image = self.net_G(features)
+        if features is not None:
+            self.fake_image = self.net_G(features)
+        else:
+            self.fake_image = self.net_G(self.source_image)
         return self.fake_image
             
         # self.fake_image = self.net_A(self.net_G(self.source_image))
@@ -221,20 +225,21 @@ class AEModel(BaseModel):
             loss_ad_gen = self.GANloss(D_fake, True, False) * self.opt.lambda_g
 
         # Calculate perceptual loss
-        loss_content_gen, loss_style_gen = self.Vggloss(fake_image, target_image)
-        loss_style_gen = loss_style_gen * self.opt.lambda_style
-        loss_content_gen = loss_content_gen * self.opt.lambda_content
-        # loss_style_gen, loss_content_gen = None, None
+        # loss_content_gen, loss_style_gen = self.Vggloss(fake_image, target_image)
+        # loss_style_gen = loss_style_gen * self.opt.lambda_style
+        # loss_content_gen = loss_content_gen * self.opt.lambda_content
+        loss_style_gen, loss_content_gen = None, None
 
         return loss_app_gen, loss_ad_gen, loss_style_gen, loss_content_gen
 
     def backward_G(self, loss_nl=None):
         base_function._unfreeze(self.net_D)
 
-        # self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
-        self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=False)
-        self.loss_G = self.loss_app_gen + self.loss_style_gen + self.loss_content_gen
-        # self.loss_G = self.loss_app_gen + self.loss_ad_gen
+        self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
+        # self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=False)
+        # self.loss_G = torch.tensor(0.0).cuda()
+        self.loss_G = self.loss_app_gen + self.loss_ad_gen
+        # self.loss_G = self.loss_app_gen + self.loss_ad_gen + self.loss_style_gen + self.loss_content_gen
         # loss bp from reid part
         if loss_nl is not None:
            self.loss_G = self.loss_G + loss_nl 

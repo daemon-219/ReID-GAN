@@ -7,7 +7,7 @@ from torch import nn, autograd
 
 
 class CM(autograd.Function):
-
+    
     @staticmethod
     def forward(ctx, inputs, targets, features, momentum):
         ctx.features = features
@@ -18,6 +18,7 @@ class CM(autograd.Function):
         return outputs
 
     @staticmethod
+    @torch.cuda.amp.autocast()
     def backward(ctx, grad_outputs):
         inputs, targets = ctx.saved_tensors
         grad_inputs = None
@@ -87,8 +88,10 @@ class ClusterMemory(nn.Module, ABC):
 
         self.register_buffer('features', torch.zeros(num_samples, num_features))
 
+    @torch.cuda.amp.autocast()
     def forward(self, inputs, targets, update=True, ex_f=None):
 
+        # gather    
         inputs = F.normalize(inputs, dim=1).cuda()
         if not update:
             outputs = torch.mm(inputs, self.features.t())
@@ -97,6 +100,7 @@ class ClusterMemory(nn.Module, ABC):
                 outputs = cm_hard(inputs, targets, self.features, self.momentum)
             else:
                 outputs = cm(inputs, targets, self.features, self.momentum)
+        print(self.features.shape)
         
         if ex_f is not None: 
             ex_f = F.normalize(ex_f, dim=1).cuda()
