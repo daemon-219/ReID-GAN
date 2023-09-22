@@ -4,7 +4,7 @@ import torchvision.models as models
 from torch.nn import Parameter
 import torch.nn.functional as F
 import copy
-
+from . import base_function
 
 ####################################################################################################
 # adversarial loss for different gan mode
@@ -110,6 +110,7 @@ class VGGLoss(nn.Module):
     def __init__(self, weights=[1.0, 1.0, 1.0, 1.0, 1.0]):
         super(VGGLoss, self).__init__()
         self.add_module('vgg', VGG19())
+        base_function.print_network(self.vgg)
         self.criterion = torch.nn.L1Loss()
         self.weights = weights
 

@@ -17,8 +17,8 @@ class CM(autograd.Function):
 
         return outputs
 
+    # @torch.cuda.amp.autocast()
     @staticmethod
-    @torch.cuda.amp.autocast()
     def backward(ctx, grad_outputs):
         inputs, targets = ctx.saved_tensors
         grad_inputs = None
@@ -88,7 +88,7 @@ class ClusterMemory(nn.Module, ABC):
 
         self.register_buffer('features', torch.zeros(num_samples, num_features))
 
-    @torch.cuda.amp.autocast()
+    # @torch.cuda.amp.autocast()
     def forward(self, inputs, targets, update=True, ex_f=None):
 
         # gather    
@@ -100,16 +100,32 @@ class ClusterMemory(nn.Module, ABC):
                 outputs = cm_hard(inputs, targets, self.features, self.momentum)
             else:
                 outputs = cm(inputs, targets, self.features, self.momentum)
-        print(self.features.shape)
-        
+        # print(self.features.shape)
         if ex_f is not None: 
             ex_f = F.normalize(ex_f, dim=1).cuda()
             # t extend samples, outputs_ex:(n, t)
-            outputs_ex = inputs.mm(ex_f.t())
-            outputs_ex += (-10000.0 * torch.eye(ex_f.shape[0])).cuda()
+            outputs_ex = torch.mm(inputs, ex_f.t())
+            # n == t
+            # outputs_ex += (-10000.0 * torch.eye(ex_f.shape[0])).cuda()
+            # n = t * group_size
+            group_size = outputs_ex.shape[0] // outputs_ex.shape[1]
+            # print(group_size)
+            outputs_ex += (-10000.0 * torch.eye(ex_f.shape[0])).repeat_interleave(group_size, dim=0).cuda()
+            # outputs_ex[::group_size] += (-10000.0 * torch.eye(ex_f.shape[0])).cuda()
             # outputs:(n, m+t)
             outputs = torch.cat([outputs, outputs_ex], dim=1)
+            # outputs_ex = torch.mm(ex_f, self.features.t())
+            # pred = torch.argmax(F.softmax(outputs_ex, dim=1), dim=1)
+            # print(pred)
+            # print('label:', targets)
 
+            # outputs_ex /= self.temp
+            # fc_labels = torch.repeat_interleave(torch.arange(ex_f.shape[0], dtype=torch.long), group_size, dim=0).cuda()
+            # loss_fc = F.cross_entropy(outputs_ex, fc_labels)
+
+        # cl = (q * k) / (q * c) + (q * ex)
+        # cl = (q * k) / ((q * ex))
         outputs /= self.temp
+        # print(outputs.shape)
         loss = F.cross_entropy(outputs, targets)
         return loss

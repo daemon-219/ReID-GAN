@@ -76,6 +76,16 @@ class ResNet(nn.Module):
             if self.need_predictor:
                 print("build predictor for cl loss")
                 self._build_predictor_mlps(self.num_features, 2*self.num_features)
+
+            # self.fmap1 = nn.Conv2d(self.num_features//4, self.num_features//2, kernel_size=4, stride=2, padding=1)
+            # self.fmap2 = nn.Conv2d(self.num_features//2, self.num_features, kernel_size=1, stride=1, padding=0)        
+            self.fmap1 = nn.Conv2d(self.num_features//8, self.num_features//2, kernel_size=1, stride=1, padding=0)
+            self.fmap2 = nn.Conv2d(self.num_features//2, self.num_features, kernel_size=1, stride=1, padding=0)
+            init.kaiming_normal_(self.fmap1.weight, mode='fan_out')
+            init.kaiming_normal_(self.fmap2.weight, mode='fan_out')
+            init.constant_(self.fmap1.bias, 0)            
+            init.constant_(self.fmap2.bias, 0)
+
         init.constant_(self.feat_bn.weight, 1)
         init.constant_(self.feat_bn.bias, 0)
 
@@ -117,30 +127,53 @@ class ResNet(nn.Module):
 
         return prob
     
-    # @torch.cuda.amp.autocast()
-    def forward_train(self, x, in_trainer=False):
-        bs = x.size(0)
+    # # @torch.cuda.amp.autocast()
+    # def forward_train(self, x, in_trainer=False):
+    #     bs = x.size(0)
 
-        x_0 = self.resnet_layer0(x)
-        x_1 = self.resnet_layer1(x_0)
-        x_2 = self.resnet_layer2(x_1)
-        x_3 = self.resnet_layer3(x_2)
-        x_4 = self.resnet_layer4(x_3)
+    #     x_0 = self.resnet_layer0(x)
+    #     x_1 = self.resnet_layer1(x_0)
+    #     x_2 = self.resnet_layer2(x_1)
+    #     x_3 = self.resnet_layer3(x_2)
+    #     x_4 = self.resnet_layer4(x_3)
 
-        # get feature map for synthesis
-        # f_map = x_4
+    #     # get feature map for synthesis
+    #     # f_map = x_4
 
-        x = self.gap(x_4)
+    #     x = self.gap(x_4)
+    #     x = x.view(x.size(0), -1)
+
+    #     if self.has_embedding:
+    #         bn_x = self.feat_bn(self.feat(x))
+    #     else:
+    #         bn_x = self.feat_bn(x)
+
+    #     # if (self.training is False) and (in_trainer is False):
+    #     #     bn_x = F.normalize(bn_x)
+    #     #     return bn_x
+
+    #     if self.norm:
+    #         bn_x = F.normalize(bn_x)
+    #     elif self.has_embedding:
+    #         bn_x = F.relu(bn_x)
+
+    #     if self.dropout > 0:
+    #         bn_x = self.drop(bn_x)
+
+    #     return x_0, x_1, x_2, x_3, x_4, bn_x
+    
+    def feature_mapping(self, F_g):
+        bs = F_g.size(0)
+        
+        x = self.fmap2(self.fmap1(F_g))
+
+        x = self.gap(x)
         x = x.view(x.size(0), -1)
 
         if self.has_embedding:
             bn_x = self.feat_bn(self.feat(x))
         else:
             bn_x = self.feat_bn(x)
-
-        # if (self.training is False) and (in_trainer is False):
-        #     bn_x = F.normalize(bn_x)
-        #     return bn_x
 
         if self.norm:
             bn_x = F.normalize(bn_x)
@@ -150,7 +183,7 @@ class ResNet(nn.Module):
         if self.dropout > 0:
             bn_x = self.drop(bn_x)
 
-        return x_0, x_1, x_2, x_3, x_4, bn_x
+        return bn_x
 
     def reset_params(self):
         for m in self.modules():

@@ -19,7 +19,9 @@ def define_G(opt, image_nc, pose_nc, ngf=64, img_f=1024, encoder_layer=3, norm='
     elif opt.model_gen == 'AE':
         netG = AEGenerator(image_nc, ngf, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc, num_blocks)    
     elif opt.model_gen == 'DEC':
-        netG = DECGenerator(ngf, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc)
+        netG = DECGenerator(ngf, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc)    
+    elif opt.model_gen == 'FD':
+        netG = FDGenerator(img_f, ngf, output_nc=3, fuse_mode='none')
     else:
         raise('generator not implemented!')
     return init_net(netG, opt.init_type)
@@ -324,7 +326,6 @@ class AEGenerator(nn.Module):
 
     def forward(self, inputs):
         F_s = self.forward_enc(inputs)
-        # print(F_s.shape)
         out_image =self.forward_dec(F_s)
         return out_image    
     
@@ -393,6 +394,102 @@ class DECGenerator(nn.Module):
 
         return out_image
     
+
+class FDGenerator(nn.Module):
+    def __init__(self, reid_feature_nc, ngf=64, noise_nc=3, pose_nc=18, output_nc=3, 
+                        dropout=0.0, norm_layer=nn.BatchNorm2d, fuse_mode='none'):
+        super(FDGenerator, self).__init__()
+        self.fuse_mode = fuse_mode
+        self.norm_layer = norm_layer
+        self.dropout = dropout
+
+        if type(norm_layer) == functools.partial:
+            self.use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            self.use_bias = norm_layer == nn.InstanceNorm2d
+
+        input_channel = [8, 8, 4, 2, 1]
+
+        ##################### Decoder #########################
+        if fuse_mode=='cat':
+            de_avg = [nn.ReLU(True),
+                    nn.ConvTranspose2d(reid_feature_nc + noise_nc, ngf * 8,
+                        kernel_size=(8,4), bias=self.use_bias),
+                    norm_layer(ngf * 8),
+                    nn.Dropout(dropout)]
+        elif fuse_mode=='add':
+            nc = max(reid_feature_nc, noise_nc)
+            self.W_reid = nn.Linear(reid_feature_nc, nc, bias=False)
+            self.W_noise = nn.Linear(noise_nc, nc, bias=False)
+            de_avg = [nn.ReLU(True),
+                    nn.ConvTranspose2d(nc, ngf * 8,
+                        kernel_size=(8, 4), bias=self.use_bias),
+                    norm_layer(ngf * 8),
+                    nn.Dropout(dropout)]
+        elif fuse_mode=='none':
+            nc = reid_feature_nc
+            self.W_reid = nn.Linear(reid_feature_nc, nc, bias=False)
+            de_avg = [nn.ReLU(True),
+                    nn.ConvTranspose2d(nc, ngf * 8,
+                        kernel_size=(8, 4), bias=self.use_bias),
+                    norm_layer(ngf * 8),
+                    nn.Dropout(dropout)]
+        else:
+            raise ('Wrong fuse mode, please select from [cat|add]')
+        self.de_avg = nn.Sequential(*de_avg)
+        # N*512*8*4
+
+        self.de_conv5 = self._make_layer_decode(ngf * input_channel[0], ngf * 8)
+        # N*512*16*8
+        self.de_conv4 = self._make_layer_decode(ngf * input_channel[1], ngf * 4)
+        # N*256*32*16
+        self.de_conv3 = self._make_layer_decode(ngf * input_channel[2], ngf * 2)
+        # N*128*64*32
+        self.de_conv2 = self._make_layer_decode(ngf * input_channel[3], ngf)
+        # N*64*128*64
+        de_conv1 = [nn.ReLU(True),
+                    nn.ConvTranspose2d(ngf * input_channel[4], output_nc,
+                        kernel_size=4, stride=2,
+                        padding=1, bias=self.use_bias),
+                    nn.Tanh()]
+        self.de_conv1 = nn.Sequential(*de_conv1)
+        # N*3*256*128
+
+    def _make_layer_decode(self, in_nc, out_nc):
+        block = [nn.ReLU(True),
+                nn.ConvTranspose2d(in_nc, out_nc,
+                    kernel_size=4, stride=2,
+                    padding=1, bias=self.use_bias),
+                self.norm_layer(out_nc),
+                nn.Dropout(self.dropout)]
+        return nn.Sequential(*block)
+
+    def decode(self, model, fake_feature):
+        return model(fake_feature)
+
+    def forward(self, reid_feature, noise=None):
+        batch_size = reid_feature.shape[0]
+
+        if self.fuse_mode=='cat':
+            feature = torch.cat((reid_feature, noise), dim=1)
+        elif self.fuse_mode=='add':
+            feature = self.W_reid(reid_feature.view(batch_size, -1)) + \
+                      self.W_noise(noise.view(batch_size,-1))
+            feature = feature.view(batch_size,-1,1,1)
+        elif self.fuse_mode=='none':
+            feature = self.W_reid(reid_feature.view(batch_size, -1))
+            feature = feature.view(batch_size,-1,1,1)
+
+        fake_feature = self.de_avg(feature)
+
+        fake_feature_5 = self.decode(self.de_conv5, fake_feature)
+        fake_feature_4 = self.decode(self.de_conv4, fake_feature_5)
+        fake_feature_3 = self.decode(self.de_conv3, fake_feature_4)
+        fake_feature_2 = self.decode(self.de_conv2, fake_feature_3)
+        fake_feature_1 = self.decode(self.de_conv1, fake_feature_2)
+
+        fake_imgs = fake_feature_1
+        return fake_imgs
 
 ##############################################################################
 # Discriminator

@@ -27,7 +27,7 @@ class BaseOptions():
                             help='ranking within the nodes')
 
         # path
-        self.parser.add_argument('--name', type=str, default='AE_CC_market_test', help='name of the experiment. It decides where to store samples and models')  
+        self.parser.add_argument('--name', type=str, default='AE_ex_fc_test', help='name of the experiment. It decides where to store samples and models')  
         working_dir = './examples'
         self.parser.add_argument('--data-dir', type=str, metavar='PATH',
                             default=osp.join(working_dir, 'data'))
