@@ -268,6 +268,9 @@ def main_worker(opt):
         
 
     for epoch in range(opt.epochs):
+        # release memory 
+        torch.cuda.empty_cache()
+
         with torch.no_grad():
             print('==> Create pseudo labels for unlabeled data')
             cluster_loader = get_test_loader(dataset, opt.height, opt.width,
@@ -379,12 +382,16 @@ def main_worker(opt):
                                         optimizer.state_dict()['param_groups'][0]['lr'],
                                         lr_G,
                                         lr_D))
+                    
+                    wandb.log({
+                        "G_lr": lr_G,
+                        "D_lr": lr_D})
                     GAN_model.update_learning_rate()
                 
                 if (epoch + 1) % opt.vis_step == 0 or (epoch == opt.epochs - 1):
                     # visualize gan results 
                     # GAN_model.visual_names = ['source_image', 'target_image', 'fake_image', 'fake_image_n']
-                    GAN_model.visual_names = ['source_image', 'fake_image']
+                    GAN_model.visual_names = ['fake_image']
                     visualizer.display_current_results(GAN_model.get_current_visuals(), epoch)
                     if hasattr(GAN_model, 'distribution'):
                         visualizer.plot_current_distribution(GAN_model.get_current_dis())

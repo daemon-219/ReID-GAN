@@ -21,7 +21,7 @@ def define_G(opt, image_nc, pose_nc, ngf=64, img_f=1024, encoder_layer=3, norm='
     elif opt.model_gen == 'DEC':
         netG = DECGenerator(ngf, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc)    
     elif opt.model_gen == 'FD':
-        netG = FDGenerator(img_f, ngf, output_nc=3, fuse_mode='none')
+        netG = FDGenerator(img_f, ngf, output_nc=3, noise_nc=512, fuse_mode='add')
     else:
         raise('generator not implemented!')
     return init_net(netG, opt.init_type)

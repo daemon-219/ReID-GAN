@@ -3,6 +3,7 @@ import time
 from .utils.meters import AverageMeter
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 from clustercontrast.utils.data.diff_augs import my_resize, my_transform, my_normalize
 
 import os.path as osp
@@ -112,8 +113,8 @@ class ClusterContrastWithGANTrainer(object):
             # reid_inputs, labels, indexes = self._parse_data(inputs)
             reid_inputs, labels, indexes = self._parse_data(inputs[0])
             gan_inputs = inputs[1]['Xs']
-            self.gan.set_input(gan_inputs)
-            # self.gan.set_input(gan_inputs[::group_size])
+            # self.gan.set_input(gan_inputs)
+            self.gan.set_input(gan_inputs[::group_size])
             # self.gan.target_image = reid_inputs[::group_size]
 
             """
@@ -171,7 +172,8 @@ class ClusterContrastWithGANTrainer(object):
 
             # shape: b, 256, 16, 8
             # fake_features = self.gan.synthesize()
-            fc_image = self.gan.synthesize_fc(group_size)
+            fake_images = self.gan.synthesize()
+            # fc_image = self.gan.synthesize_fc(group_size)
             
             # shape: b, 2048, 16, 8
             # f_gan = self.encoder.module.feature_mapping(fake_features.detach())
@@ -179,8 +181,13 @@ class ClusterContrastWithGANTrainer(object):
             # loss_f = self.opt.lambda_nl * self.f_metric(f_out.detach(), f_gan) / f_gan.shape[0]
             # loss_f = self.opt.lambda_nl * self.f_metric(f_out.detach()[::group_size], f_gan) / f_gan.shape[0]
 
-            f_ex = self._forward(my_normalize(fc_image))
+            self.encoder.eval()
+            f_ex = self._forward(my_normalize(fake_images))
             # # f_ex = self.gan.feature_fusion(fr_4, torch.flip(fr_4, dims=[0]))
+            self.encoder.train()
+
+            # f_out = torch.cat([f_out, f_ex], dim=0)
+            # labels = torch.cat([labels, labels[::group_size]], dim=0)
 
             # # f_ex = 0.9 * f_out + 0.1 * f_gan
             # f_ex = torch.mean(torch.stack(torch.split(f_gan.detach(), group_size, dim=0), dim=0), dim=1)
@@ -256,8 +263,8 @@ class ClusterContrastWithGANTrainer(object):
                 
     def train_all(self, epoch, data_loader, optimizer, print_freq=10, train_iters=400, acc_iters=0):
         print("train both gan and reid")
-        self.encoder.eval()
-        # self.encoder.train()
+        # self.encoder.eval()
+        self.encoder.train()
 
         batch_time = AverageMeter()
         data_time = AverageMeter()
@@ -281,10 +288,24 @@ class ClusterContrastWithGANTrainer(object):
             reid_inputs, labels, indexes = self._parse_data(inputs[0])
             gan_inputs = inputs[1]['Xs']
             self.gan.set_input(gan_inputs)
-            self.gan.target_image = reid_inputs         
+            # self.gan.target_image = reid_inputs         
             # self.gan.set_input(gan_inputs[::group_size])
             # self.gan.target_image = reid_inputs[::group_size]
 
+            gan_inputs = self.memory.features[labels]
+            gan_inputs = F.normalize(gan_inputs)
+            fake_images = self.gan.cond_synthesize(gan_inputs)
+
+            self.encoder.eval()
+            f_syn_out = self._forward(my_normalize(fake_images))
+            self.encoder.train()
+
+            f_out = self._forward(reid_inputs)
+
+            loss = self.memory(f_out, labels)
+
+            loss_gan = self.opt.lambda_nl * self.memory(f_syn_out, labels, update=False)
+            
             # with torch.cuda.amp.autocast():
 
             # fr_0, fr_1, fr_2, fr_3, fr_4, f_out = self._forward(reid_inputs)
@@ -406,7 +427,7 @@ class ClusterContrastWithGANTrainer(object):
             # all backward for gan
             # self.gan.optimize_parameters_generated()
             # self.gan.optimize_parameters_generated()
-            self.gan.optimize_parameters()         
+            # self.gan.optimize_parameters()         
             
             # TODO: fake target as extended inputs
             # ex_input = fake_image_t.detach().clone()
@@ -424,7 +445,7 @@ class ClusterContrastWithGANTrainer(object):
             
             # discriminator opt
             
-            # self.gan.backward_D()
+            self.gan.backward_D()
 
             # generator and reid opt
 
@@ -433,21 +454,23 @@ class ClusterContrastWithGANTrainer(object):
             # self.gan.backward_G()
             
             # self.gan.optimize_generated()
-            # self.gan.optimize_generated(frec_loss)
+            self.gan.optimize_generated(loss_gan)
             # self.gan.optimize_generated(gm_loss)
+
+            optimizer.zero_grad()
 
             # self.loss_G.backward()
             # loss.backward(retain_graph=True)
-            # loss.backward()
+            loss.backward()
 
             # self.gan.optimizer_D.step()
             # self.gan.optimizer_D.zero_grad()
             # self.gan.optimizer_G.step()
-            # optimizer.step()
+            optimizer.step()
             # optimizer.zero_grad()
             # self.gan.optimizer_G.zero_grad()
 
-            # losses.update(loss.item())
+            losses.update(loss.item())
 
             # add writer
             if self.writer is not None:
@@ -466,7 +489,7 @@ class ClusterContrastWithGANTrainer(object):
                 # self.writer.add_scalar('Loss/content_gen_t', gan_losses['content_gen_t'], total_steps)
                 # self.writer.add_scalar('Loss/style_gen_t', gan_losses['style_gen_t'], total_steps)
                 # reid model
-                # self.writer.add_scalar('Loss/reid_loss', losses.val, total_steps)
+                self.writer.add_scalar('Loss/reid_loss', losses.val, total_steps)
                 # # neg loss bp into gan
                 # self.writer.add_scalar('Loss/nl_loss', loss_neg.item())
                 # cl loss from hard negative samples
@@ -480,28 +503,31 @@ class ClusterContrastWithGANTrainer(object):
 
             wandb.log({
                 "GANLoss_G": gan_losses['G'],
-                "GANLoss_D": gan_losses['D']})
+                "GANLoss_D": gan_losses['D'], 
+                "reid_loss": losses.val})
 
             if (i + 1) % print_freq == 0:
                 print('Epoch: [{}][{}/{}]\t'
                     'Time {:.3f} ({:.3f})\t'
                     'Data {:.3f} ({:.3f})\t'
-                    # 'Loss {:.3f} ({:.3f})\t'
+                    'Loss {:.3f} ({:.3f})\t'
                     #   'CLLoss: {:.3f}\t'
                     #   'NLLoss: {:.3f}\t'
-                    'GANLoss: G:{:.3f} D:{:.3f}\n'
+                    'GANLoss: G:{:.3f} D:{:.3f}\t'
                     #   'GANLoss: G:{:.3f}\t'
                     # 'FRECLoss: {:.3f}\n'
+                    'GidLoss: {:.3f}\n'
                     #   'Loss GM {:.3f}\n'
                     .format(epoch, i + 1, len(data_loader),
                             batch_time.val, batch_time.avg,
                             data_time.val, data_time.avg,
-                            # losses.val, losses.avg,
+                            losses.val, losses.avg,
                             #   loss_cl.item(),
                             #   loss_neg.item(),
                             gan_losses['G'], gan_losses['D'],
                             #   gan_losses['G'],
-                            # frec_loss.item(),
+                            #   frec_loss.item(),
+                                loss_gan.item(), 
                             #   gm_loss.item()
                             ))
 

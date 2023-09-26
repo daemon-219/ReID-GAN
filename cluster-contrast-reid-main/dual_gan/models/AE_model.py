@@ -42,8 +42,8 @@ class AEModel(BaseModel):
     def __init__(self, opt):
         BaseModel.__init__(self, opt)
         self.old_size = opt.old_size
-        self.loss_names = ['app_gen', 'content_gen', 'style_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
-        # self.loss_names = ['app_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
+        # self.loss_names = ['app_gen', 'content_gen', 'style_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
+        self.loss_names = ['content_gen', 'style_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
         self.model_names = ['G']
         # self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image', 'fake_image_n']
         self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image']
@@ -80,7 +80,7 @@ class AEModel(BaseModel):
 
             self.GANloss = external_function.GANLoss(opt.gan_mode).to(opt.device)
             self.L1loss = torch.nn.L1Loss()
-            # self.Vggloss = external_function.VGGLoss().to(opt.device)
+            self.Vggloss = external_function.VGGLoss().to(opt.device)
 
             # define the optimizer
             self.optimizer_G = torch.optim.Adam(itertools.chain(
@@ -135,6 +135,16 @@ class AEModel(BaseModel):
     def forward(self):
         # Encode Inputs
         self.fake_image = self.net_G(self.source_image)
+
+    # @torch.cuda.amp.autocast()
+    def cond_synthesize(self, features=None):
+
+        self.noise = torch.randn(features.shape[0], 512).cuda()
+        self.fake_image = self.net_G(features, self.noise)
+
+        # return F_s
+        return self.fake_image
+    
     
     # @torch.cuda.amp.autocast()
     def synthesize(self, features=None, is_train=False):
@@ -145,10 +155,10 @@ class AEModel(BaseModel):
             # self.fake_image = self.net_G(self.source_image)
             F_s = self.net_G.module.forward_enc(self.source_image)
             # print(F_s.shape)
-            # self.fake_image =self.net_G.module.forward_dec(F_s) 
+            self.fake_image =self.net_G.module.forward_dec(F_s) 
 
-        return F_s
-        # return self.fake_image
+        # return F_s
+        return self.fake_image
             
         # self.fake_image = self.net_A(self.net_G(self.source_image))
         # return self.fake_image, None
@@ -179,12 +189,20 @@ class AEModel(BaseModel):
     def synthesize_fc(self, group_size=16):
         # self.fake_image = self.net_G(self.source_image)
         F_s = self.net_G.module.forward_enc(self.source_image)
+        # attention here 
+        # F_c = torch.mean(torch.stack(torch.split(F_s, group_size, dim=0), dim=0), dim=1)
+
         F_c = torch.mean(torch.stack(torch.split(F_s, group_size, dim=0), dim=0), dim=1)
+
+        # self-attention blocks
+        # hard postive and negative samples
+        # attention map threshold 
+        # skip connected and normed
+
         self.fake_image = self.net_G.module.forward_dec(F_c)
 
         return self.fake_image
  
-
     def feature_fusion(self, F_s, F_t, div=2):
         # feature fusion strategy 
         anchor = F_s.detach().clone()
@@ -210,13 +228,13 @@ class AEModel(BaseModel):
             ratio_mask = torch.where(sim_id == i, 1-self.opt.lambda_fus, self.opt.lambda_fus).reshape(-1, 1, 1, 1)
             F_n[:,:,h1:h2,:] = ratio_mask * F_s[:,:,h1:h2,:] + (1- ratio_mask) * F_t[:,:,h1:h2,:]
 
-        # return F_n
+        return F_n
 
-        x = self.gap(F_n)
-        x = x.view(x.size(0), -1)
-        bn_x = self.feat_bn(x)
-        bn_x = F.normalize(bn_x)
-        return bn_x
+        # x = self.gap(F_n)
+        # x = x.view(x.size(0), -1)
+        # bn_x = self.feat_bn(x)
+        # bn_x = F.normalize(bn_x)
+        # return bn_x
 
     def backward_D_basic(self, netD, real, fake):
         # Real
@@ -242,8 +260,9 @@ class AEModel(BaseModel):
 
     def backward_G_basic(self, fake_image, target_image, use_d):
         # Calculate reconstruction loss
-        loss_app_gen = self.L1loss(fake_image, target_image)
-        loss_app_gen = loss_app_gen * self.opt.lambda_rec
+        loss_app_gen = None
+        # loss_app_gen = self.L1loss(fake_image, target_image)
+        # loss_app_gen = loss_app_gen * self.opt.lambda_rec
 
         # Calculate GAN loss
         loss_ad_gen = None
@@ -266,8 +285,8 @@ class AEModel(BaseModel):
         self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
         # self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=False)
         # self.loss_G = torch.tensor(0.0).cuda()
-        # self.loss_G = self.loss_app_gen + self.loss_ad_gen
-        self.loss_G = self.loss_app_gen + self.loss_ad_gen + self.loss_style_gen + self.loss_content_gen
+        self.loss_G = self.loss_ad_gen + self.loss_style_gen + self.loss_content_gen
+        # self.loss_G = self.loss_app_gen + self.loss_ad_gen + self.loss_style_gen + self.loss_content_gen
         # loss bp from reid part
         if loss_nl is not None:
            self.loss_G = (self.loss_G + loss_nl)

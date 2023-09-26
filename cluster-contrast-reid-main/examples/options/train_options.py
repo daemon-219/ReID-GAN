@@ -24,7 +24,7 @@ class TrainOptions(BaseOptions):
         self.GAN_group.add_argument('--beta1', type=float, default=0.5, help='momentum term of adam')
         self.GAN_group.add_argument('--gan_lr', type=float, default=0.0002, help='initial learning rate for adam')
         self.GAN_group.add_argument('--gan_lr_policy', type=str, default='lambda', help='learning rate policy[lambda|step|plateau]')
-        self.GAN_group.add_argument('--gan_mode', type=str, default='lsgan', choices=['wgan-gp', 'hinge', 'lsgan'])
+        self.GAN_group.add_argument('--gan_mode', type=str, default='lsgan', choices=['wgangp', 'hinge', 'lsgan'])
         # for discriminators        
         self.GAN_group.add_argument('--num_D', type=int, default=1, help='number of discriminators to use')
         self.GAN_group.add_argument('--n_layers_D', type=int, default=3, help='only used if which_model_netD==n_layers')

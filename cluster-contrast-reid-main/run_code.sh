@@ -2,12 +2,14 @@
 
 export PYTHONPATH=$PYTHONPATH:/home/mmc_zhaojiacheng/project/people_image/ReID_GAN/cluster-contrast-reid-main/ 
 export CUDA_VISIBLE_DEVICES=0,1,2,3
-# python examples/cluster_contrast_gan_train_usl_infomap.py --with_gan --gan_train --model AE --model_gen AE \
-#     --lambda_nl 0.1 --dis_metric cos_m --eval-step 1 --vis-step 1 -b 128 -a resnet50 -d market1501 --iters 200 --momentum 0.1 --eps 0.6 --num-instances 16 
 
-python examples/cluster_contrast_gan_train_usl_infomap.py --with_gan --model AE --model_gen AE \
-    --load_pretrain examples/Logs/AE_warmup1_logs/AE/AE_CC_market_test \
-    --lambda_nl 1. --vis-step 1 --eval-step 1 -b 256 -a resnet50 -d market1501 --iters 200 --momentum 0.1 --eps 0.6 --num-instances 8 
+python examples/cluster_contrast_gan_train_usl_infomap.py --with_gan --gan_train --model AE --model_gen FD \
+    --gan_mode wgangp --gan_lr 0.00015 --gan_lr_policy step --lambda_nl 1. --eval-step 1 --vis-step 1 \
+    -b 128 -a resnet50 -d market1501 --iters 200 --momentum 0.1 --eps 0.6 --num-instances 8 
+
+# python examples/cluster_contrast_gan_train_usl_infomap.py --with_gan --model AE --model_gen AE \
+#     --load_pretrain examples/Logs/AE_warmup1_logs/AE/AE_CC_market_test \
+#     --lambda_nl 1. --vis-step 1 --eval-step 1 -b 256 -a resnet50 -d market1501 --iters 200 --momentum 0.1 --eps 0.6 --num-instances 16 
 
     # --load_pretrain examples/Logs/AE_warmup_logs/AE/AE_CC_market_test \
     # --lambda_nl 1. --eval-step 1 --vis-step 1 
