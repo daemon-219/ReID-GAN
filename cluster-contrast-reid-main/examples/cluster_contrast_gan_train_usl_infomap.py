@@ -100,8 +100,8 @@ def get_train_loader(opt, dataset, height, width, batch_size, workers,
         # ])        
         
         GAN_transform = T.Compose([
-            T.Resize((height, width), interpolation=InterpolationMode.BICUBIC),
-            T.RandomHorizontalFlip(p=0.5),
+            # T.Resize((height, width), interpolation=InterpolationMode.BICUBIC),
+            # T.RandomHorizontalFlip(p=0.5),
             T.ToTensor(),
             T.Normalize((0.5, 0.5, 0.5),(0.5, 0.5, 0.5))
         ])
@@ -391,7 +391,7 @@ def main_worker(opt):
                 if (epoch + 1) % opt.vis_step == 0 or (epoch == opt.epochs - 1):
                     # visualize gan results 
                     # GAN_model.visual_names = ['source_image', 'target_image', 'fake_image', 'fake_image_n']
-                    GAN_model.visual_names = ['fake_image']
+                    GAN_model.visual_names = ['source_image', 'fake_image']
                     visualizer.display_current_results(GAN_model.get_current_visuals(), epoch)
                     if hasattr(GAN_model, 'distribution'):
                         visualizer.plot_current_distribution(GAN_model.get_current_dis())

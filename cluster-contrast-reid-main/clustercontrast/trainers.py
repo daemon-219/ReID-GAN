@@ -113,8 +113,8 @@ class ClusterContrastWithGANTrainer(object):
             # reid_inputs, labels, indexes = self._parse_data(inputs)
             reid_inputs, labels, indexes = self._parse_data(inputs[0])
             gan_inputs = inputs[1]['Xs']
-            # self.gan.set_input(gan_inputs)
-            self.gan.set_input(gan_inputs[::group_size])
+            self.gan.set_input(gan_inputs)
+            # self.gan.set_input(gan_inputs[::group_size])
             # self.gan.target_image = reid_inputs[::group_size]
 
             """
@@ -172,8 +172,8 @@ class ClusterContrastWithGANTrainer(object):
 
             # shape: b, 256, 16, 8
             # fake_features = self.gan.synthesize()
-            fake_images = self.gan.synthesize()
-            # fc_image = self.gan.synthesize_fc(group_size)
+            # fake_images = self.gan.synthesize()
+            fc_image = self.gan.synthesize_fc(group_size)
             
             # shape: b, 2048, 16, 8
             # f_gan = self.encoder.module.feature_mapping(fake_features.detach())
@@ -182,7 +182,7 @@ class ClusterContrastWithGANTrainer(object):
             # loss_f = self.opt.lambda_nl * self.f_metric(f_out.detach()[::group_size], f_gan) / f_gan.shape[0]
 
             self.encoder.eval()
-            f_ex = self._forward(my_normalize(fake_images))
+            f_ex = self._forward(my_normalize(fc_image))
             # # f_ex = self.gan.feature_fusion(fr_4, torch.flip(fr_4, dims=[0]))
             self.encoder.train()
 
@@ -286,25 +286,28 @@ class ClusterContrastWithGANTrainer(object):
 
             # process inputs
             reid_inputs, labels, indexes = self._parse_data(inputs[0])
-            gan_inputs = inputs[1]['Xs']
-            self.gan.set_input(gan_inputs)
+            # gan_inputs = inputs[1]['Xs']
+            self.gan.set_input(inputs[1])
             # self.gan.target_image = reid_inputs         
             # self.gan.set_input(gan_inputs[::group_size])
             # self.gan.target_image = reid_inputs[::group_size]
 
-            gan_inputs = self.memory.features[labels]
-            gan_inputs = F.normalize(gan_inputs)
-            fake_images = self.gan.cond_synthesize(gan_inputs)
+            # gan_inputs = self.memory.features[labels]
+            # gan_inputs = F.normalize(gan_inputs)
+            # fake_images = self.gan.cond_synthesize(gan_inputs)
 
-            self.encoder.eval()
-            f_syn_out = self._forward(my_normalize(fake_images))
-            self.encoder.train()
+            # self.encoder.eval()
+            # f_syn_out = self._forward(my_normalize(fake_images))
+            # self.encoder.train()
 
             f_out = self._forward(reid_inputs)
 
+            fake_images = self.gan.synthesize_p(self.memory.features[labels])
+            # fake_images = self.gan.synthesize_p(f_out.detach())
+
             loss = self.memory(f_out, labels)
 
-            loss_gan = self.opt.lambda_nl * self.memory(f_syn_out, labels, update=False)
+            # loss_gan = self.opt.lambda_nl * self.memory(f_syn_out, labels, update=False)
             
             # with torch.cuda.amp.autocast():
 
@@ -445,7 +448,7 @@ class ClusterContrastWithGANTrainer(object):
             
             # discriminator opt
             
-            self.gan.backward_D()
+            # self.gan.backward_D()
 
             # generator and reid opt
 
@@ -454,7 +457,7 @@ class ClusterContrastWithGANTrainer(object):
             # self.gan.backward_G()
             
             # self.gan.optimize_generated()
-            self.gan.optimize_generated(loss_gan)
+            self.gan.optimize_generated()
             # self.gan.optimize_generated(gm_loss)
 
             optimizer.zero_grad()
@@ -516,7 +519,7 @@ class ClusterContrastWithGANTrainer(object):
                     'GANLoss: G:{:.3f} D:{:.3f}\t'
                     #   'GANLoss: G:{:.3f}\t'
                     # 'FRECLoss: {:.3f}\n'
-                    'GidLoss: {:.3f}\n'
+                    # 'GidLoss: {:.3f}\n'
                     #   'Loss GM {:.3f}\n'
                     .format(epoch, i + 1, len(data_loader),
                             batch_time.val, batch_time.avg,
@@ -527,7 +530,7 @@ class ClusterContrastWithGANTrainer(object):
                             gan_losses['G'], gan_losses['D'],
                             #   gan_losses['G'],
                             #   frec_loss.item(),
-                                loss_gan.item(), 
+                                # loss_gan.item(), 
                             #   gm_loss.item()
                             ))
 

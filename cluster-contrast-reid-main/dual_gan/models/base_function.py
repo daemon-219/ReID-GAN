@@ -255,6 +255,21 @@ class EncoderBlockOptimized(nn.Module):
     def forward(self, x):
         out = self.model(x)
         return out
+    
+class FeatureAdaptBlock(nn.Module):
+    """
+        Define an Encoder block for the input reid features
+    """
+    def __init__(self, input_nc, output_nc, norm_layer=nn.BatchNorm2d, nonlinearity=nn.LeakyReLU(), up_size=(8,4)):
+        super(FeatureAdaptBlock, self).__init__()
+
+        conv1 = nn.ConvTranspose2d(input_nc, output_nc, kernel_size=up_size, bias=(norm_layer == nn.InstanceNorm2d))
+
+        self.model = nn.Sequential(conv1, norm_layer(output_nc), nonlinearity)
+
+    def forward(self, x):
+        out = self.model(x)
+        return out
 
 
 class EncoderBlock(nn.Module):

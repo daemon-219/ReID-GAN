@@ -28,6 +28,10 @@ class AEModel(BaseModel):
         parser.add_argument('--layers_g', type=int, default=3, help='number of layers in G')
         parser.add_argument('--save_input', action='store_true', help="whether save the input images when testing")
         parser.add_argument('--num_blocks', type=int, default=3, help="number of resblocks")
+        parser.add_argument('--affine', action='store_true', default=True, help="affine in PTM")
+        parser.add_argument('--nhead', type=int, default=2, help="number of heads in PTM")
+        parser.add_argument('--num_CABs', type=int, default=2, help="number of CABs in PTM")
+        parser.add_argument('--num_TTBs', type=int, default=2, help="number of CABs in PTM")
 
         # if is_train:
         parser.add_argument('--ratio_g2d', type=float, default=0.1, help='learning rate ratio G to D')
@@ -55,7 +59,12 @@ class AEModel(BaseModel):
         self.gap = nn.AdaptiveAvgPool2d(1).to(opt.device)
         self.feat_bn = nn.BatchNorm1d(num_feats).to(opt.device)
 
-        self.net_G = networks.define_G(opt, image_nc=opt.image_nc, pose_nc=opt.pose_nc, ngf=64, img_f=num_feats,
+        if opt.model_gen == 'Pose':
+            self.net_G = networks.define_G(opt, image_nc=opt.image_nc, pose_nc=opt.pose_nc, ngf=64, img_f=num_feats,
+                                       encoder_layer=3, norm=opt.norm, activation='LeakyReLU',
+                                       use_spect=opt.use_spect_g, use_coord=opt.use_coord, output_nc=3, num_blocks=3, affine=True, nhead=opt.nhead, num_CABs=opt.num_CABs, num_TTBs=opt.num_TTBs)
+        else:
+            self.net_G = networks.define_G(opt, image_nc=opt.image_nc, pose_nc=opt.pose_nc, ngf=64, img_f=num_feats,
                                        encoder_layer=G_layer, norm=opt.norm, activation='LeakyReLU',
                                        use_spect=opt.use_spect_g, use_coord=opt.use_coord, output_nc=3, num_blocks=3)
         
@@ -124,12 +133,15 @@ class AEModel(BaseModel):
         self.input = inputs
         if b_id is not None:
             # get input from b_id for each group
-            source_image = torch.index_select(inputs, 0, b_id)
+            # source_image = torch.index_select(inputs, 0, b_id)
+            source_image, source_pose = torch.index_select(inputs['Xs'], 0, b_id), torch.index_select(inputs['Ps'], 0, b_id)
             # target_image = torch.index_select(input['Xt'], 0, b_id)
         else:
-            source_image = inputs
+            # source_image = inputs
+            source_image, source_pose = inputs['Xs'], inputs['Ps']
             # target_image = input['Xt']
         self.source_image = source_image.cuda()
+        self.source_pose = source_pose.cuda()
         # self.target_image = target_image.cuda()
 
     def forward(self):
@@ -145,7 +157,13 @@ class AEModel(BaseModel):
         # return F_s
         return self.fake_image
     
-    
+    def synthesize_p(self, cluster_features=None):
+
+        self.fake_image =self.net_G(cluster_features, self.source_pose) 
+
+        return self.fake_image
+
+
     # @torch.cuda.amp.autocast()
     def synthesize(self, features=None, is_train=False):
         # features = self.feature_fusion(features, torch.flip(features, dims=[0]))
@@ -190,19 +208,37 @@ class AEModel(BaseModel):
         # self.fake_image = self.net_G(self.source_image)
         F_s = self.net_G.module.forward_enc(self.source_image)
         # attention here 
-        # F_c = torch.mean(torch.stack(torch.split(F_s, group_size, dim=0), dim=0), dim=1)
-
         F_c = torch.mean(torch.stack(torch.split(F_s, group_size, dim=0), dim=0), dim=1)
 
         # self-attention blocks
         # hard postive and negative samples
         # attention map threshold 
         # skip connected and normed
+        # num_ids = F_s.shape[0] // group_size
 
-        self.fake_image = self.net_G.module.forward_dec(F_c)
+        # F_c = self.opt.lambda_fus * F_c + (1-self.opt.lambda_fus) * torch.flip(F_c, dims=[0])
+
+        self.fake_image = self.net_G.module.forward_dec(self.hard_mix(F_s, F_c, group_size))
 
         return self.fake_image
  
+    def hard_mix(self, F_s, F_c, group_size):
+
+        anchor_feature = F.normalize(torch.flatten(F.adaptive_avg_pool2d(F_c, (1,1)), start_dim=1), dim=-1)
+        instacne_feature = F.normalize(torch.flatten(F.adaptive_avg_pool2d(F_s, (1,1)), start_dim=1), dim=-1)
+
+        sim = torch.exp(torch.einsum('n c, m c -> n m', [anchor_feature, instacne_feature]))
+
+        id_mask = torch.eye(anchor_feature.shape[0]).repeat_interleave(group_size, dim=1).cuda()
+        # select the farthest in id
+        in_id = torch.argmin(id_mask * sim + (1-id_mask) * torch.max(sim), dim=1)
+        # select the nearest out id
+        out_id = torch.argmax((1-id_mask) * sim, dim=1)
+        
+        return torch.where(torch.rand_like(F_c) < self.opt.lambda_fus, F_s[in_id], F_s[out_id])
+    
+        # return self.opt.lambda_fus * F_s[in_id] + (1-self.opt.lambda_fus) * F_s[out_id]
+    
     def feature_fusion(self, F_s, F_t, div=2):
         # feature fusion strategy 
         anchor = F_s.detach().clone()
@@ -225,7 +261,7 @@ class AEModel(BaseModel):
         for i in range(div):
             h1 = i * part_h
             h2 = min((i+1) * part_h, FH)
-            ratio_mask = torch.where(sim_id == i, 1-self.opt.lambda_fus, self.opt.lambda_fus).reshape(-1, 1, 1, 1)
+            ratio_mask = torch.where(sim_id == i, (1-self.opt.lambda_fus), self.opt.lambda_fus).reshape(-1, 1, 1, 1)
             F_n[:,:,h1:h2,:] = ratio_mask * F_s[:,:,h1:h2,:] + (1- ratio_mask) * F_t[:,:,h1:h2,:]
 
         return F_n
@@ -261,8 +297,8 @@ class AEModel(BaseModel):
     def backward_G_basic(self, fake_image, target_image, use_d):
         # Calculate reconstruction loss
         loss_app_gen = None
-        # loss_app_gen = self.L1loss(fake_image, target_image)
-        # loss_app_gen = loss_app_gen * self.opt.lambda_rec
+        loss_app_gen = self.L1loss(fake_image, target_image)
+        loss_app_gen = loss_app_gen * self.opt.lambda_rec
 
         # Calculate GAN loss
         loss_ad_gen = None
@@ -285,8 +321,8 @@ class AEModel(BaseModel):
         self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
         # self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=False)
         # self.loss_G = torch.tensor(0.0).cuda()
-        self.loss_G = self.loss_ad_gen + self.loss_style_gen + self.loss_content_gen
-        # self.loss_G = self.loss_app_gen + self.loss_ad_gen + self.loss_style_gen + self.loss_content_gen
+        # self.loss_G = self.loss_ad_gen + self.loss_style_gen + self.loss_content_gen
+        self.loss_G = self.loss_app_gen + self.loss_ad_gen + self.loss_style_gen + self.loss_content_gen
         # loss bp from reid part
         if loss_nl is not None:
            self.loss_G = (self.loss_G + loss_nl)

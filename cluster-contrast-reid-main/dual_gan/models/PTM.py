@@ -3,6 +3,60 @@ import torch
 from torch import nn
 from .base_function import *
 
+class PCTM(nn.Module):
+    """
+    Pose Transformer Module (PTM)
+    :param d_model: number of channels in input
+    :param nhead: number of heads in attention module
+    :param num_CABs: number of CABs
+    :param num_TTBs: number of TTBs
+    :param dim_feedforward: dimension in feedforward
+    :param activation: activation function 'ReLU, SELU, LeakyReLU, PReLU'
+    :param affine: affine in normalization
+    :param norm: normalization function 'instance, batch'
+    """
+    def __init__(self, d_model=512, nhead=8, num_CABs=6, 
+                 num_TTBs=6, dim_feedforward=2048,
+                 activation="LeakyReLU",
+                 affine=True, norm='instance'):
+        super().__init__()
+    
+        encoder_layer = CAB(d_model, nhead, dim_feedforward,
+                                                activation, affine, norm)
+        if norm == 'batch':
+            encoder_norm = None
+            decoder_norm = nn.BatchNorm1d(d_model, affine=affine)
+        elif norm == 'instance':
+            encoder_norm = None
+            decoder_norm = nn.InstanceNorm1d(d_model, affine=affine)
+
+        self.encoder = CABs(encoder_layer, num_CABs, encoder_norm)
+
+        decoder_layer = TTB(d_model, nhead, dim_feedforward,
+                                                activation, affine, norm)
+
+        self.decoder = TTBs(decoder_layer, num_TTBs, decoder_norm)
+
+        self._reset_parameters()
+
+        self.d_model = d_model
+        self.nhead = nhead
+
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, query, value, pos_embed=None):
+        bs, c, h, w = query.shape
+        query = query.flatten(2).permute(2, 0, 1)
+        value = value.flatten(2).permute(2, 0, 1)
+        if pos_embed != None:
+            pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
+        value = self.encoder(value, pos=pos_embed)
+        hs = self.decoder(query, value, value, pos=pos_embed)
+        return hs.view(bs, c, h, w)
+
 class PTM(nn.Module):
     """
     Pose Transformer Module (PTM)

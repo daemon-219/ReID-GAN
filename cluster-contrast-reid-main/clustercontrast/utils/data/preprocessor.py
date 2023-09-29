@@ -145,7 +145,7 @@ class Preprocessor(Dataset):
         Xs = F.resize(Xs, self.load_size)
         # Xt = F.resize(Xt, self.load_size)
 
-        # Ps = self.obtain_bone(Xs_name)
+        Ps = self.obtain_bone(Xs_name)
         Xs = self.trans(Xs)
         
         # Pt = self.obtain_bone(Xt_name)
@@ -153,7 +153,7 @@ class Preprocessor(Dataset):
 
         # return {'Xs': Xs, 'Ps': Ps, 'Xt': Xt, 'Pt': Pt,
         #         'Xs_path': Xs_name, 'Xt_path': Xt_name}        
-        return {'Xs': Xs}
+        return {'Xs': Xs, 'Ps': Ps}
     
     def obtain_bone(self, name):
         string = self.annotation_file.loc[name]

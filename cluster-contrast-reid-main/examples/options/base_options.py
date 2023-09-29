@@ -27,14 +27,14 @@ class BaseOptions():
                             help='ranking within the nodes')
 
         # path
-        self.parser.add_argument('--name', type=str, default='CondGAN_reid_test1', help='name of the experiment. It decides where to store samples and models')  
+        self.parser.add_argument('--name', type=str, default='pos_gan_test', help='name of the experiment. It decides where to store samples and models')  
         working_dir = './examples'
         self.parser.add_argument('--data-dir', type=str, metavar='PATH',
                             default=osp.join(working_dir, 'data'))
         self.parser.add_argument('--logs-dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'Logs', 'CondGAN_logs1'))
+                            default=osp.join(working_dir, 'Logs', 'pos_gan_logs'))
         self.GAN_group.add_argument('--checkpoints_dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'Logs', 'CondGAN_logs1/AE'), help='models are saved here')        
+                            default=osp.join(working_dir, 'Logs', 'pos_gan_logs/AE'), help='models are saved here')        
         self.GAN_group.add_argument('--gan_train', action='store_true', help='if specified, train gan and use contrastive learning')
         self.GAN_group.add_argument('--use_adp', action='store_true', help='if specified, train adaptor for gan')
         self.CC_group.add_argument('--pooling-type', type=str, default='gem')
