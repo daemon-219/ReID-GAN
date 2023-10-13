@@ -34,7 +34,7 @@ from dual_gan.gan_visualizer import Visualizer
 
 from clustercontrast import datasets
 from clustercontrast import models
-from clustercontrast.models.cm import ClusterMemory
+from clustercontrast.models.cm import ClusterMemory, ClusterMemory_Gradient
 from clustercontrast.trainers import ClusterContrastTrainer, ClusterContrastWithGANTrainer
 from clustercontrast.evaluators import Evaluator, extract_features
 from clustercontrast.utils.data import IterLoader
@@ -67,13 +67,13 @@ def get_data(name, data_dir):
 
 
 def get_train_loader(opt, dataset, height, width, batch_size, workers,
-                     num_instances, iters, with_pose=False, trainset=None, no_cam=False, rank=None):
+                     num_instances, iters, with_gan=False, trainset=None, no_cam=False, rank=None):
 
     normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
     
     GAN_transform = None
-    if with_pose:
+    if with_gan:
         # basic size transform, put data augmentations in trainer 
         # (height, weight): (256, 128)
         # train_transformer = T.Compose([
@@ -130,14 +130,14 @@ def get_train_loader(opt, dataset, height, width, batch_size, workers,
     
     train_loader = IterLoader(
         DataLoader(Preprocessor(train_set, root=dataset.images_dir, pose_file=dataset.train_pose_dir, 
-                                with_pose=with_pose, load_size=opt.loadSize,
+                                with_gan=with_gan, load_size=opt.loadSize,
                                 transform=train_transformer, GAN_transform=GAN_transform),
                    batch_size=batch_size, num_workers=workers, sampler=sampler,
                    shuffle=not rmgs_flag, pin_memory=True, drop_last=True), length=iters)
     return train_loader
 
 
-def get_test_loader(dataset, height, width, batch_size, workers, with_pose=False, testset=None):
+def get_test_loader(dataset, height, width, batch_size, workers, with_gan=False, testset=None):
 
     normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
@@ -153,7 +153,7 @@ def get_test_loader(dataset, height, width, batch_size, workers, with_pose=False
 
     test_loader = DataLoader(
         Preprocessor(testset, root=dataset.images_dir, pose_file=dataset.test_pose_dir, 
-                     with_pose=with_pose, transform=test_transformer),
+                     with_gan=with_gan, transform=test_transformer),
         batch_size=batch_size, num_workers=workers,
         shuffle=False, pin_memory=True)
 
@@ -253,6 +253,7 @@ def main_worker(opt):
     optimizer = torch.optim.Adam(params, lr=opt.reid_lr, weight_decay=opt.weight_decay)
 
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=opt.lr_step_size, gamma=0.1)
+    # lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
     # Trainer
     if opt.with_gan:
         trainer = ClusterContrastWithGANTrainer(encoder=ReID_model, GAN=GAN_model, writer=writer, opt=opt)
@@ -312,10 +313,18 @@ def main_worker(opt):
         del cluster_loader, features
 
         # Create hybrid memory
-        memory = ClusterMemory(ReID_model.module.num_features, num_cluster, temp=opt.temp,
-                               momentum=opt.momentum, use_hard=opt.use_hard).cuda()
-
-        memory.features = F.normalize(cluster_features, dim=1).cuda()
+        if opt.learnable_memory:
+            memory = ClusterMemory_Gradient(ReID_model.module.num_features, num_cluster, temp=opt.temp).cuda()
+            cluster_features = F.normalize(cluster_features, dim=1).cuda()
+            # cluster_lr = opt.cluster_lr * (0.95 ** epoch)
+            # wandb.log({
+            #     "cluster_lr": cluster_lr})
+            memory.set_clusters(cluster_features, opt.cluster_lr)
+        else:
+            memory = ClusterMemory(ReID_model.module.num_features, num_cluster, temp=opt.temp,
+                               momentum=opt.momentum, use_hard=opt.use_hard, use_conf=opt.use_conf).cuda()
+            memory.features = F.normalize(cluster_features, dim=1).cuda()
+        
         trainer.memory = memory
         pseudo_labeled_dataset = []
 
@@ -327,10 +336,10 @@ def main_worker(opt):
 
         # train_loader = get_train_loader(opt, dataset, opt.height, opt.width,
         #                                 opt.batch_size, opt.workers, opt.num_instances, iters,
-        #                                 with_pose=opt.gan_train, trainset=pseudo_labeled_dataset, no_cam=opt.no_cam)        
+        #                                 with_gan=opt.gan_train, trainset=pseudo_labeled_dataset, no_cam=opt.no_cam)        
         train_loader = get_train_loader(opt, dataset, opt.height, opt.width,
                                         opt.batch_size, opt.workers, opt.num_instances, iters,
-                                        with_pose=True, trainset=pseudo_labeled_dataset, no_cam=opt.no_cam)
+                                        with_gan=True, trainset=pseudo_labeled_dataset, no_cam=opt.no_cam)
 
         train_loader.new_epoch()
 
@@ -339,8 +348,12 @@ def main_worker(opt):
         """
         if (epoch + 1) > opt.warmup_epo: 
             if opt.gan_train:
-                trainer.train_all(epoch, train_loader, optimizer, print_freq=opt.print_freq, 
+                if opt.learnable_memory:
+                    trainer.train_all_with_memoery(epoch, train_loader, optimizer, print_freq=opt.print_freq, 
                             train_iters=len(train_loader), acc_iters=acc_iters)
+                else:
+                    trainer.train_all(epoch, train_loader, optimizer, print_freq=opt.print_freq, 
+                            train_iters=len(train_loader), acc_iters=acc_iters)             
             else:
                 trainer.train(epoch, train_loader, optimizer, print_freq=opt.print_freq, 
                             train_iters=len(train_loader), acc_iters=acc_iters)
@@ -390,8 +403,8 @@ def main_worker(opt):
                 
                 if (epoch + 1) % opt.vis_step == 0 or (epoch == opt.epochs - 1):
                     # visualize gan results 
-                    # GAN_model.visual_names = ['source_image', 'target_image', 'fake_image', 'fake_image_n']
-                    GAN_model.visual_names = ['source_image', 'fake_image']
+                    # GAN_model.visual_names = ['source_image', 'target_image', 'fake_image', 'fake_image_n', 'mixed_image']
+                    GAN_model.visual_names = ['source_image', 'fake_image', 'mixed_image']
                     visualizer.display_current_results(GAN_model.get_current_visuals(), epoch)
                     if hasattr(GAN_model, 'distribution'):
                         visualizer.plot_current_distribution(GAN_model.get_current_dis())

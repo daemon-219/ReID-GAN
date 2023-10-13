@@ -26,6 +26,7 @@ class AEModel(BaseModel):
         parser.add_argument('--lambda_style', type=float, default=500, help='weight for the VGG19 style loss')
         parser.add_argument('--lambda_content', type=float, default=0.5, help='weight for the VGG19 content loss')
         parser.add_argument('--layers_g', type=int, default=3, help='number of layers in G')
+        parser.add_argument('--num_feats', type=int, default=256, help='number of layers in G')
         parser.add_argument('--save_input', action='store_true', help="whether save the input images when testing")
         parser.add_argument('--num_blocks', type=int, default=3, help="number of resblocks")
         parser.add_argument('--affine', action='store_true', default=True, help="affine in PTM")
@@ -47,13 +48,15 @@ class AEModel(BaseModel):
         BaseModel.__init__(self, opt)
         self.old_size = opt.old_size
         # self.loss_names = ['app_gen', 'content_gen', 'style_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
-        self.loss_names = ['content_gen', 'style_gen', 'ad_gen', 'dis_img_gen', 'G', 'D']
+        self.loss_names = ['G', 'D']
         self.model_names = ['G']
         # self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image', 'fake_image_n']
-        self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image']
+        self.visual_names = ['source_image', 'source_pose', 'target_image', 'target_pose', 'fake_image', 'mixed_image']
         self.model_gen = opt.model_gen
-        num_feats = 2048 if (opt.model_gen == 'DEC' or opt.model_gen == 'FD') else 256
-        G_layer = 4 if opt.model_gen == 'DEC' else 4
+        num_feats = opt.num_feats
+        G_layer = opt.layers_g
+        # num_feats = 2048 if (opt.model_gen == 'DEC' or opt.model_gen == 'FD') else 256
+        # G_layer = 4 if opt.model_gen == 'DEC' else 4
 
         # for feature fusion output
         self.gap = nn.AdaptiveAvgPool2d(1).to(opt.device)
@@ -61,7 +64,7 @@ class AEModel(BaseModel):
 
         if opt.model_gen == 'Pose':
             self.net_G = networks.define_G(opt, image_nc=opt.image_nc, pose_nc=opt.pose_nc, ngf=64, img_f=num_feats,
-                                       encoder_layer=3, norm=opt.norm, activation='LeakyReLU',
+                                       encoder_layer=G_layer, norm=opt.norm, activation='LeakyReLU',
                                        use_spect=opt.use_spect_g, use_coord=opt.use_coord, output_nc=3, num_blocks=3, affine=True, nhead=opt.nhead, num_CABs=opt.num_CABs, num_TTBs=opt.num_TTBs)
         else:
             self.net_G = networks.define_G(opt, image_nc=opt.image_nc, pose_nc=opt.pose_nc, ngf=64, img_f=num_feats,
@@ -88,8 +91,10 @@ class AEModel(BaseModel):
             self.old_lr = opt.gan_lr
 
             self.GANloss = external_function.GANLoss(opt.gan_mode).to(opt.device)
-            self.L1loss = torch.nn.L1Loss()
-            self.Vggloss = external_function.VGGLoss().to(opt.device)
+            # self.L1loss = torch.nn.L1Loss()
+            self.L1loss = torch.nn.L1Loss(reduction="none")
+            if not opt.no_vgg_loss:
+                self.Vggloss = external_function.VGGLoss().to(opt.device)
 
             # define the optimizer
             self.optimizer_G = torch.optim.Adam(itertools.chain(
@@ -157,51 +162,98 @@ class AEModel(BaseModel):
         # return F_s
         return self.fake_image
     
-    def synthesize_p(self, cluster_features=None):
+    def synthesize_p(self, cluster_features):
 
-        self.fake_image =self.net_G(cluster_features, self.source_pose) 
+        self.fake_image = self.net_G(cluster_features, self.source_pose) 
 
-        return self.fake_image
+        return self.fake_image    
+    
+    def synthesize_hp(self, cluster_features, labels=None, group_size=None, lambda_fus=0.5):
 
+        bs = self.source_pose.shape[0]
+
+        # self.fake_image = self.net_G(cluster_features[torch.repeat_interleave(uids, group_size, dim=0)], self.source_pose)
+        uids = torch.unique(labels)
+
+        sim = torch.exp(torch.einsum('n c, m c -> n m', [cluster_features[uids], cluster_features]))
+
+        sim[torch.arange(uids.shape[0]), uids] += -10000.0
+        # print(sim)
+        # print(sim.shape)
+        # select the nearest out id
+        out_id = torch.argmax(sim, dim=1)
+        
+        fused_cluster = F.normalize(lambda_fus * cluster_features[uids] + (1-lambda_fus) * cluster_features[out_id])
+        # print(cluster_features[torch.repeat_interleave(uids, group_size, dim=0)])
+        # print(fused_cluster)
+
+        # 1 sample for each id
+        # syn_images = self.net_G(torch.cat([cluster_features[labels], fused_cluster], dim=0),
+        #                                torch.cat([self.source_pose, self.source_pose[::group_size]], dim=0))        
+        
+        p_idx = torch.randperm(bs)
+
+        syn_images = self.net_G(torch.cat([cluster_features[labels], torch.repeat_interleave(fused_cluster, group_size, dim=0)], dim=0),
+                                       torch.cat([self.source_pose, self.source_pose[p_idx]], dim=0))
+        
+        self.fake_image = syn_images[:bs]
+        self.mixed_image = syn_images[bs:]
+
+        return self.mixed_image
+    
+    
+    def synthesize_mhp(self, reid_features, cluster_features, labels=None, group_size=None, lambda_fus=0.5):
+
+        bs = self.source_pose.shape[0]
+
+        F_mean = torch.mean(torch.stack(torch.split(reid_features, group_size, dim=0), dim=0), dim=1)
+
+        uids = torch.unique(labels)
+
+        sim = torch.exp(torch.einsum('n c, m c -> n m', [cluster_features[uids], cluster_features]))
+
+        sim[torch.arange(uids.shape[0]), uids] += -10000.0
+        # print(sim)
+        # print(sim.shape)
+        # select the nearest out id
+        out_id = torch.argmax(sim, dim=1)
+        
+        # fused_cluster = F.normalize(lambda_fus * cluster_features[uids] + (1-lambda_fus) * cluster_features[out_id])
+
+        # F_extend = torch.repeat_interleave(fused_cluster, group_size, dim=0)     
+
+        F_extend = lambda_fus * reid_features + (1-lambda_fus) * torch.repeat_interleave(cluster_features[out_id], group_size, dim=0)
+
+        F_gan = cluster_features[labels]   
+        
+        # F_gan = torch.repeat_interleave(F_mean, group_size, dim=0)
+        # F_extend = torch.repeat_interleave(fused_cluster, group_size, dim=0)
+
+        # 1 sample for each id
+        # syn_images = self.net_G(torch.cat([cluster_features[labels], fused_cluster], dim=0),
+        #                                torch.cat([self.source_pose, self.source_pose[::group_size]], dim=0))        
+        
+        syn_images = self.net_G(torch.cat([F_gan, F_extend], dim=0),
+                                 torch.cat([self.source_pose, self.source_pose], dim=0))
+        
+        self.fake_image = syn_images[:bs]
+        self.mixed_image = syn_images[bs:]
+
+        return self.mixed_image
 
     # @torch.cuda.amp.autocast()
-    def synthesize(self, features=None, is_train=False):
+    def synthesize(self, features=None):
         # features = self.feature_fusion(features, torch.flip(features, dims=[0]))
         if features is not None:
             self.fake_image = self.net_G(features)
         else:
-            # self.fake_image = self.net_G(self.source_image)
-            F_s = self.net_G.module.forward_enc(self.source_image)
-            # print(F_s.shape)
-            self.fake_image =self.net_G.module.forward_dec(F_s) 
+            self.fake_image = self.net_G(self.source_image)
+            # F_s = self.net_G.module.forward_enc(self.source_image)
+            # # print(F_s.shape)
+            # self.fake_image =self.net_G.module.forward_dec(F_s) 
 
         # return F_s
-        return self.fake_image
-            
-        # self.fake_image = self.net_A(self.net_G(self.source_image))
-        # return self.fake_image, None
-        
-        # F_s = self.net_G.module.forward_enc(self.source_image)
-
-        # # print(F_s.shape)
-        # # (b, 256, 16, 8)
-
-        # self.fake_image = self.net_G.module.forward_dec(F_s)
-        
-        # F_n = self.feature_fusion(F_s, torch.flip(F_s, dims=[0]))
-
-        # self.fake_image_n = self.net_G.module.forward_dec(F_n)
-
-        # if self.use_adp:
-        #     self.fake_image_n = self.net_A(self.fake_image_n)
-
-        # if is_train:
-        #     self.fake_image_s = self.net_G.module.forward_dec(F_s)
-        #     if self.use_adp:
-        #         self.fake_image_s = self.net_A(self.fake_image_s)
-        #     return self.fake_image_s, self.fake_image_n  
-
-        # return self.fake_image_n   
+        return self.fake_image  
 
     # @torch.cuda.amp.autocast()
     def synthesize_fc(self, group_size=16):
@@ -234,11 +286,26 @@ class AEModel(BaseModel):
         in_id = torch.argmin(id_mask * sim + (1-id_mask) * torch.max(sim), dim=1)
         # select the nearest out id
         out_id = torch.argmax((1-id_mask) * sim, dim=1)
-        
-        return torch.where(torch.rand_like(F_c) < self.opt.lambda_fus, F_s[in_id], F_s[out_id])
+
+        # return torch.where(torch.rand_like(F_c) < self.opt.lambda_fus, F_s[in_id], F_s[out_id])
+
+        # return self.opt.lambda_fus * F_s[in_id] + (1-self.opt.lambda_fus) * self.cross_attention(F_s[in_id], F_s[out_id])
     
-        # return self.opt.lambda_fus * F_s[in_id] + (1-self.opt.lambda_fus) * F_s[out_id]
+        return self.opt.lambda_fus * F_s[in_id] + (1-self.opt.lambda_fus) * F_s[out_id]
     
+    def cross_attention(self, source, target):
+        bs, c, h, w = source.shape
+
+        # normed features from AE encoder
+        s = source.flatten(2).permute(0, 2, 1)
+        t = target.flatten(2).permute(0, 2, 1)      
+
+        attn = torch.einsum('b i d, b j d -> b i j', F.normalize(s, dim=-1), F.normalize(t, dim=-1)).softmax(dim=-1)
+
+        # attn = torch.einsum('b i d, b j d -> b i j', s, t).softmax(dim=-1)
+
+        return torch.einsum('b i j, b j d -> b i d', attn, t).permute(0, 2, 1).view(bs, c, h, w)
+
     def feature_fusion(self, F_s, F_t, div=2):
         # feature fusion strategy 
         anchor = F_s.detach().clone()
@@ -308,35 +375,64 @@ class AEModel(BaseModel):
             loss_ad_gen = self.GANloss(D_fake, True, False) * self.opt.lambda_g
 
         # Calculate perceptual loss
-        loss_content_gen, loss_style_gen = self.Vggloss(fake_image, target_image)
-        loss_style_gen = loss_style_gen * self.opt.lambda_style
-        loss_content_gen = loss_content_gen * self.opt.lambda_content
-        # loss_style_gen, loss_content_gen = None, None
+        if self.opt.no_vgg_loss:
+            loss_style_gen, loss_content_gen = None, None
+        else:
+            loss_content_gen, loss_style_gen = self.Vggloss(fake_image, target_image)
+            loss_style_gen = loss_style_gen * self.opt.lambda_style
+            loss_content_gen = loss_content_gen * self.opt.lambda_content
 
         return loss_app_gen, loss_ad_gen, loss_style_gen, loss_content_gen
 
-    def backward_G(self, loss_nl=None):
+    def backward_G(self, loss_nl=None, group_size=16):
         base_function._unfreeze(self.net_D)
 
         self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
         # self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=False)
         # self.loss_G = torch.tensor(0.0).cuda()
-        # self.loss_G = self.loss_ad_gen + self.loss_style_gen + self.loss_content_gen
-        self.loss_G = self.loss_app_gen + self.loss_ad_gen + self.loss_style_gen + self.loss_content_gen
+
+        loss_G = self.loss_app_gen.flatten(1).mean(dim=-1) + self.loss_ad_gen.flatten(1).mean(dim=-1)
+        # print(torch.split(loss_G, group_size, dim=0))
+        # print(loss_G[:16])
+         
+        # conf_mask = (torch.stack(torch.split(-loss_G, group_size, dim=0), dim=0) / self.opt.cf_temp).softmax(dim=-1).flatten(0).detach()
+        # # # print(conf_mask)
+        # self.loss_G = (conf_mask * loss_G).sum() / (conf_mask.shape[0] // group_size)
+
+        self.loss_G = loss_G.mean()
+        # self.loss_G = self.loss_app_gen + self.loss_ad_gen
+        # self.loss_G = self.loss_app_gen + self.loss_ad_gen + self.loss_style_gen + self.loss_content_gen
         # loss bp from reid part
         if loss_nl is not None:
            self.loss_G = (self.loss_G + loss_nl)
         
-        self.loss_G.backward()
+        self.loss_G.backward()    
+        
+    def get_loss_G(self, group_size=None, cf_temp=0.2):
+        base_function._unfreeze(self.net_D)
 
-    # def get_loss_G(self, loss_nl=None):
-    #     base_function._unfreeze(self.net_D)
+        self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
+        # self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=False)
+        # self.loss_G = torch.tensor(0.0).cuda()
 
-    #     self.loss_app_gen, self.loss_ad_gen, self.loss_style_gen, self.loss_content_gen = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
-    #     self.loss_G = self.loss_app_gen + self.loss_style_gen + self.loss_content_gen + self.loss_ad_gen
-    #     # loss bp from reid part
-    #     if loss_nl is not None:
-    #        self.loss_G = self.loss_G + loss_nl 
+        loss_rec = self.loss_app_gen.flatten(1).mean(dim=-1)
+        conf_mask = (torch.stack(torch.split(-loss_rec, group_size, dim=0), dim=0) / cf_temp).softmax(dim=-1).flatten(0).detach()
+
+        # loss_rec *= (group_size * conf_mask) 
+        
+        loss_G = loss_rec + self.loss_ad_gen.flatten(1).mean(dim=-1)
+        
+        # print(torch.split(loss_G, group_size, dim=0))
+        # print(loss_G[:16])
+         
+        
+        # conf_mask = (torch.stack(torch.split(-loss_G, group_size, dim=0), dim=0) / self.opt.cf_temp).softmax(dim=-1).flatten(0).detach()
+        # print(conf_mask)
+        # self.loss_G = (conf_mask * loss_G).sum() / (conf_mask.shape[0] // group_size)
+
+        self.loss_G = loss_G.mean()
+
+        return self.loss_G, conf_mask
         
     def optimize_parameters(self):
         self.forward()
@@ -356,8 +452,11 @@ class AEModel(BaseModel):
 
         self.optimizer_G.zero_grad()
         self.backward_G(loss_nl)
+        # conf_mask = self.backward_G(loss_nl)
         # self.loss_G.backward()
         self.optimizer_G.step()
+
+        # return conf_mask
 
     def optimize_parameters_adaptor(self, loss):
         self.optimizer_A.zero_grad()

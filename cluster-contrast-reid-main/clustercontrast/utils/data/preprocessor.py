@@ -47,7 +47,7 @@ class Preprocessor(Dataset):
                  pose_file=None, 
                 #  height=256, 
                 #  width=128, 
-                 with_pose=False,
+                 with_gan=False,
                  load_size=128,
                 #  pose_aug='no', 
                  transform=None, 
@@ -60,9 +60,9 @@ class Preprocessor(Dataset):
         self.root = root
         self.transform = transform
 
-        self.with_pose = with_pose
+        self.with_gan = with_gan
 
-        if self.with_pose:
+        if self.with_gan:
             # DPTN
             if isinstance(load_size, int):
                 self.load_size = (128, 64)
@@ -85,14 +85,14 @@ class Preprocessor(Dataset):
             # self.gan_transform = gan_transform
             # self.gan_transform_p = gan_transform_p
             # self.pose_aug = pose_aug
-            # self.pose_dict = self.read_pose_csv(pose_file) if self.with_pose else None
+            # self.pose_dict = self.read_pose_csv(pose_file) if self.with_gan else None
 
     def __len__(self):
         return len(self.dataset)
 
     def __getitem__(self, indices):
-        if self.with_pose:
-            return self._get_single_item_with_pose(indices)
+        if self.with_gan:
+            return self._get_single_item_with_gan(indices)
         else:
             return self._get_single_item(indices)
     
@@ -109,7 +109,7 @@ class Preprocessor(Dataset):
 
         return img, fname, pid, camid, index
 
-    def _get_single_item_with_pose(self, index):
+    def _get_single_item_with_gan(self, index):
         fname, pid, camid = self.dataset[index]
         fpath = fname
         if self.root is not None:
@@ -153,7 +153,7 @@ class Preprocessor(Dataset):
 
         # return {'Xs': Xs, 'Ps': Ps, 'Xt': Xt, 'Pt': Pt,
         #         'Xs_path': Xs_name, 'Xt_path': Xt_name}        
-        return {'Xs': Xs, 'Ps': Ps}
+        return {'Xs': Xs, 'Ps': Ps, 'Xs_path': Xs_name}
     
     def obtain_bone(self, name):
         string = self.annotation_file.loc[name]

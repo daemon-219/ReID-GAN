@@ -23,7 +23,7 @@ def define_G(opt, image_nc, pose_nc, ngf=64, img_f=1024, encoder_layer=3, norm='
     elif opt.model_gen == 'FD':
         netG = FDGenerator(img_f, ngf, output_nc=3, noise_nc=512, fuse_mode='add')
     elif opt.model_gen == 'Pose':
-        netG = PoseGenerator(image_nc, ngf, pose_nc, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc, affine, nhead, num_CABs, num_TTBs)
+        netG = PoseGenerator((4, 2), ngf, pose_nc, img_f, encoder_layer, norm, activation, use_spect, use_coord, output_nc, affine, nhead, num_CABs, num_TTBs)
     else:
         raise('generator not implemented!')
     return init_net(netG, opt.init_type)
@@ -285,10 +285,6 @@ class AEGenerator(nn.Module):
     :param use_coord: use coordConv operation
     :param output_nc: number of channels in output image
     :param num_blocks: number of ResBlocks
-    :param affine: affine in Pose Transformer Module
-    :param nhead: number of heads in attention module
-    :param num_CABs: number of CABs
-    :param num_TTBs: number of TTBs
     """
     def __init__(self, image_nc, ngf=64, img_f=256, layers=3, norm='batch',
                  activation='ReLU', use_spect=True, use_coord=False, output_nc=3, num_blocks=3):
@@ -337,14 +333,15 @@ class AEGenerator(nn.Module):
         for i in range(self.layers - 1):
             model = getattr(self, 'encoder' + str(i))
             F_s = model(F_s)
-        # Resblocks
-        for i in range(self.num_blocks):
-            model = getattr(self, 'mblock' + str(i))
-            F_s = model(F_s)
 
         return F_s
 
     def forward_dec(self, feature):
+        # Resblocks
+        for i in range(self.num_blocks):
+            model = getattr(self, 'mblock' + str(i))
+            feature = model(feature)
+
         # Decoder
         for i in range(self.layers):
             model = getattr(self, 'decoder' + str(i))
@@ -512,7 +509,7 @@ class PoseGenerator(nn.Module):
     :param num_CABs: number of CABs
     :param num_TTBs: number of TTBs
     """
-    def __init__(self, image_nc, ngf=64, pose_nc=18 ,img_f=256, layers=3, norm='batch',
+    def __init__(self, reid_up=(8, 4), ngf=64, pose_nc=18, img_f=256, layers=3, norm='batch',
                  activation='ReLU', use_spect=True, use_coord=False, output_nc=3,
                  affine=True, nhead=2, num_CABs=2, num_TTBs=2):
         super(PoseGenerator, self).__init__()
@@ -534,7 +531,11 @@ class PoseGenerator(nn.Module):
             setattr(self, 'encoder' + str(i), block)
 
         self.feature_block = FeatureAdaptBlock(2048, ngf * mult, norm_layer,
-                                    nonlinearity, up_size=(4,2))
+                                    nonlinearity, up_size=reid_up)        
+        
+        # self.channel_up = nn.Conv2d(img_f, 2048, kernel_size=1)
+        
+        # self.channel_down = nn.Conv2d(2048, img_f, kernel_size=1)
 
         # Pose Transformer Module (PTM)
         self.PCTM = PCTM(d_model=ngf * mult, nhead=nhead, num_CABs=num_CABs,
@@ -552,25 +553,113 @@ class PoseGenerator(nn.Module):
 
     def forward(self, reid_f, source_pose):
         # Enc
+        bs, num_feats = reid_f.shape
 
         F_p = self.block0(source_pose)
 
+        skip_list = []
+
         for i in range(self.layers - 1):
             model = getattr(self, 'encoder' + str(i))
+            skip_list.append(F_p)
             F_p = model(F_p)
         
+        # F_g = self.channel_down(reid_f.reshape(bs, num_feats, 1, 1) + self.channel_up(F_p))
         # Attention Blocks
-        F_id = self.feature_block(reid_f.unsqueeze(-1).unsqueeze(-1))
+        F_id = self.feature_block(reid_f.reshape(bs, num_feats, 1, 1))
 
         F_g = self.PCTM(F_p, F_id)
+        # F_g = self.PCTM(F_p, F_g)
 
         # Decoder
         for i in range(self.layers):
             model = getattr(self, 'decoder' + str(i))
             F_g = model(F_g)
+            if i < self.layers - 1:
+                F_g += skip_list.pop()
         out_image = self.outconv(F_g)
 
         return out_image    
+    
+# class PoseGenerator(nn.Module):
+#     """
+#     Autoencoder 
+#     :param image_nc: number of channels in input image
+#     :param pose_nc: number of channels in input pose
+#     :param ngf: base filter channel
+#     :param img_f: the largest feature channels
+#     :param layers: down and up sample layers
+#     :param norm: normalization function 'instance, batch, group'
+#     :param activation: activation function 'ReLU, SELU, LeakyReLU, PReLU'
+#     :param use_spect: use spectual normalization
+#     :param use_coord: use coordConv operation
+#     :param output_nc: number of channels in output image
+#     :param num_blocks: number of ResBlocks
+#     :param affine: affine in Pose Transformer Module
+#     :param nhead: number of heads in attention module
+#     :param num_CABs: number of CABs
+#     :param num_TTBs: number of TTBs
+#     """
+#     def __init__(self, reid_up=(8, 4), ngf=64, pose_nc=18 ,img_f=256, layers=3, norm='batch',
+#                  activation='ReLU', use_spect=True, use_coord=False, output_nc=3,
+#                  affine=True, nhead=2, num_CABs=2, num_TTBs=2):
+#         super(PoseGenerator, self).__init__()
+
+#         self.layers = layers
+#         norm_layer = get_norm_layer(norm_type=norm)
+#         nonlinearity = get_nonlinearity_layer(activation_type=activation)
+#         input_nc = pose_nc
+
+#         # Encoder En_c
+#         self.block0 = EncoderBlockOptimized(input_nc, ngf, norm_layer,
+#                                    nonlinearity, use_spect, use_coord)
+#         mult = 1
+#         for i in range(self.layers - 1):
+#             mult_prev = mult
+#             mult = min(2 ** (i + 1), img_f // ngf)
+#             block = EncoderBlock(ngf * mult_prev, ngf * mult, norm_layer,
+#                                  nonlinearity, use_spect, use_coord)
+#             setattr(self, 'encoder' + str(i), block)
+
+#         self.feature_block = FeatureAdaptBlock(2048, ngf * mult, norm_layer,
+#                                     nonlinearity, up_size=reid_up)
+
+#         # Pose Transformer Module (PTM)
+#         self.PCTM = PCTM(d_model=ngf * mult, nhead=nhead, num_CABs=num_CABs,
+#                  num_TTBs=num_TTBs, dim_feedforward=ngf * mult,
+#                  activation="LeakyReLU", affine=affine, norm=norm)
+
+#         # Decoder
+#         for i in range(self.layers):
+#             mult_prev = mult
+#             mult = min(2 ** (self.layers - i - 2), img_f // ngf) if i != self.layers - 1 else 1
+#             up = ResBlockDecoder(ngf * mult_prev, ngf * mult, ngf * mult, norm_layer,
+#                                  nonlinearity, use_spect, use_coord)
+#             setattr(self, 'decoder' + str(i), up)
+#         self.outconv = Output(ngf, output_nc, 3, None, nonlinearity, use_spect, use_coord)
+
+#     def forward(self, reid_f, source_pose):
+#         # Enc
+#         bs, num_feats = reid_f.shape
+
+#         F_p = self.block0(source_pose)
+
+#         for i in range(self.layers - 1):
+#             model = getattr(self, 'encoder' + str(i))
+#             F_p = model(F_p)
+        
+#         # Attention Blocks
+#         F_id = self.feature_block(reid_f.reshape(bs, num_feats, 1, 1))
+
+#         F_g = self.PCTM(F_p, F_id)
+
+#         # Decoder
+#         for i in range(self.layers):
+#             model = getattr(self, 'decoder' + str(i))
+#             F_g = model(F_g)
+#         out_image = self.outconv(F_g)
+
+#         return out_image    
     
     
 ##############################################################################

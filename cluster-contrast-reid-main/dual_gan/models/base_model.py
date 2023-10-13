@@ -41,8 +41,15 @@ class BaseModel():
         for name in self.visual_names:
             if isinstance(name, str):
                 value = getattr(self, name)
+                # print(name)
+                # print(value.shape)
+                # tl = []
+                # for i in range(16):
+                #     tl.append(value[i])
+                # value = tl
                 if isinstance(value, list):
                     # visual multi-scale ouputs
+                    print(len(value))
                     for i in range(len(value)):
                         visual_ret[name + str(i)] = self.convert2im(value[i], name)
                 else:

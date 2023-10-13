@@ -27,18 +27,19 @@ class BaseOptions():
                             help='ranking within the nodes')
 
         # path
-        self.parser.add_argument('--name', type=str, default='pos_gan_test', help='name of the experiment. It decides where to store samples and models')  
+        self.parser.add_argument('--name', type=str, default='Test', help='name of the experiment. It decides where to store samples and models')  
         working_dir = './examples'
         self.parser.add_argument('--data-dir', type=str, metavar='PATH',
                             default=osp.join(working_dir, 'data'))
         self.parser.add_argument('--logs-dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'Logs', 'pos_gan_logs'))
+                            default=osp.join(working_dir, 'Logs', 'test_logs'))
         self.GAN_group.add_argument('--checkpoints_dir', type=str, metavar='PATH',
-                            default=osp.join(working_dir, 'Logs', 'pos_gan_logs/AE'), help='models are saved here')        
+                            default=osp.join(working_dir, 'Logs', 'test_logs/AE'), help='models are saved here')        
         self.GAN_group.add_argument('--gan_train', action='store_true', help='if specified, train gan and use contrastive learning')
         self.GAN_group.add_argument('--use_adp', action='store_true', help='if specified, train adaptor for gan')
         self.CC_group.add_argument('--pooling-type', type=str, default='gem')
         self.CC_group.add_argument('--use-hard', action="store_true")
+        self.CC_group.add_argument('--use-conf', action="store_true")
         self.parser.add_argument('--no-cam', action="store_true")
       
         # self.parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')

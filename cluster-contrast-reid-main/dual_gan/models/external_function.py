@@ -31,7 +31,8 @@ class GANLoss(nn.Module):
         self.register_buffer('fake_label', torch.tensor(target_fake_label))
         self.gan_mode = gan_mode
         if gan_mode == 'lsgan':
-            self.loss = nn.MSELoss()
+            self.loss = nn.MSELoss(reduction="none")
+            # self.loss = nn.MSELoss()
         elif gan_mode == 'vanilla':
             self.loss = nn.BCEWithLogitsLoss()
         elif gan_mode == 'hinge':
@@ -52,6 +53,8 @@ class GANLoss(nn.Module):
         if self.gan_mode in ['lsgan', 'vanilla']:
             labels = (self.real_label if target_is_real else self.fake_label).expand_as(prediction).type_as(prediction)
             loss = self.loss(prediction, labels)
+            if is_disc:
+                loss = loss.mean()
         elif self.gan_mode in ['hinge', 'wgangp']:
             if is_disc:
                 if target_is_real:
