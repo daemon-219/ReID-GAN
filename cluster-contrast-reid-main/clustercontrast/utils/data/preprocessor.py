@@ -47,6 +47,7 @@ class Preprocessor(Dataset):
                  pose_file=None, 
                 #  height=256, 
                 #  width=128, 
+                 only_gan=False,
                  with_gan=False,
                  load_size=128,
                 #  pose_aug='no', 
@@ -60,24 +61,28 @@ class Preprocessor(Dataset):
         self.root = root
         self.transform = transform
 
+        self.only_gan = only_gan
         self.with_gan = with_gan
 
-        if self.with_gan:
+        self.with_pose = pose_file is not None
+
+        if self.with_gan or self.only_gan:
             # DPTN
             if isinstance(load_size, int):
                 self.load_size = (128, 64)
             else:
                 self.load_size = load_size
-            self.annotation_file = pd.read_csv(pose_file, sep=':')
-            self.annotation_file = self.annotation_file.set_index('name')
+            if self.with_pose:
+                self.annotation_file = pd.read_csv(pose_file, sep=':')
+                self.annotation_file = self.annotation_file.set_index('name')
             self.trans = GAN_transform
 
-            self.pid_name = defaultdict(list)
+            # self.pid_name = defaultdict(list)
 
-            for fname, pid, _ in self.dataset:
-                if pid < 0:
-                    continue
-                self.pid_name[pid].append(fname)
+            # for fname, pid, _ in self.dataset:
+            #     if pid < 0:
+            #         continue
+            #     self.pid_name[pid].append(fname)
 
             # # fdgan
             # self.height = height
@@ -91,7 +96,11 @@ class Preprocessor(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, indices):
-        if self.with_gan:
+        self.flip = torch.rand(1) < 0.5
+        # self.flip = False
+        if self.only_gan:
+            return self._get_single_gan_item(indices)
+        elif self.with_gan:
             return self._get_single_item_with_gan(indices)
         else:
             return self._get_single_item(indices)
@@ -107,6 +116,9 @@ class Preprocessor(Dataset):
         if self.transform is not None:
             img = self.transform(img)
 
+        if self.flip:
+            img = torch.flip(img, [2])
+
         return img, fname, pid, camid, index
 
     def _get_single_item_with_gan(self, index):
@@ -117,11 +129,19 @@ class Preprocessor(Dataset):
         img = Image.open(fpath).convert('RGB')
         
         if self.transform is not None:
-            reid_img = self.transform(img)
+            img = self.transform(img)
 
-        return [reid_img, fname, pid, camid, index], self.get_DPTN_input(fname, pid)
+        if self.flip:
+            img = torch.flip(img, [2])
+
+        return [img, fname, pid, camid, index], self.get_DPTN_input(fname, pid, flip=self.flip)    
     
-    def get_DPTN_input(self, fname, pid):
+    def _get_single_gan_item(self, index):
+        fname, pid, camid = self.dataset[index]
+
+        return self.get_DPTN_input(fname, pid, flip=self.flip)
+    
+    def get_DPTN_input(self, fname, pid, flip=False):
         fpath = fname
         if self.root is not None:
             fpath = osp.join(self.root, fname)
@@ -145,15 +165,27 @@ class Preprocessor(Dataset):
         Xs = F.resize(Xs, self.load_size)
         # Xt = F.resize(Xt, self.load_size)
 
-        Ps = self.obtain_bone(Xs_name)
         Xs = self.trans(Xs)
-        
-        # Pt = self.obtain_bone(Xt_name)
-        # Xt = self.trans(Xt)
+        if flip:     
+            Xs = torch.flip(Xs, [2])
 
-        # return {'Xs': Xs, 'Ps': Ps, 'Xt': Xt, 'Pt': Pt,
-        #         'Xs_path': Xs_name, 'Xt_path': Xt_name}        
-        return {'Xs': Xs, 'Ps': Ps, 'Xs_path': Xs_name}
+        gt_label = int(Xs_name.split('_', 1)[0])
+
+        if self.with_pose:
+            Ps = self.obtain_bone(Xs_name)
+            
+            if flip: 
+                Ps = torch.flip(Ps, [2])
+            
+            # Pt = self.obtain_bone(Xt_name)
+            # Xt = self.trans(Xt)
+
+            # return {'Xs': Xs, 'Ps': Ps, 'Xt': Xt, 'Pt': Pt,
+            #         'Xs_path': Xs_name, 'Xt_path': Xt_name} 
+            
+            return {'Xs': Xs, 'Ps': Ps, 'Xs_path': Xs_name, 'gt_label': gt_label}
+        
+        return {'Xs': Xs, 'Xs_path': Xs_name, 'gt_label': gt_label}
     
     def obtain_bone(self, name):
         string = self.annotation_file.loc[name]
@@ -162,84 +194,3 @@ class Preprocessor(Dataset):
         pose = np.transpose(pose,(2, 0, 1))
         pose = torch.Tensor(pose)
         return pose
-
-    # def read_pose_csv(self, pose_file):
-    #     pose_dict = {}
-
-    #     with open(pose_file, 'r') as csvfile:
-    #         items = np.loadtxt(csvfile, str, delimiter = ":", skiprows = 1, usecols = (0, 1, 2))
-
-    #         for item in items:
-    #             img_name = item[0].replace('.jpg', '') 
-    #             pose_x = np.array(item[2].strip('[ ]').split(',')).astype(np.float64).reshape(-1, 1)
-    #             pose_y = np.array(item[1].strip('[ ]').split(',')).astype(np.float64).reshape(-1, 1)
-    #             # key_point = np.concatenate((pose_x, pose_y), axis=1) 
-    #             key_point = np.concatenate((pose_y, pose_x), axis=1) 
-
-    #             pose_dict[img_name] = key_point
-
-    #     return pose_dict
-
-    # def get_FDGAN_input(self, fname, pid):
-    #     fpath = fname
-    #     if self.root is not None:
-    #         fpath = osp.join(self.root, fname)
-    #     img = Image.open(fpath).convert('RGB')
-
-    #     if self.gan_transform is not None:
-    #         gan_img = self.gan_transform(img)
-
-    #     # pid_query = list(self.pid_imgs[pid])
-    #     # if fname in pid_query and len(pid_query)>1:
-    #     #     pid_query.remove(fname)
-    #     # pname = osp.splitext(random.choice(pid_query))[0]
-
-    #     # ppath = pname+'.txt'
-    #     # if self.pose_root is not None:
-    #     #     ppath = osp.join(self.pose_root, ppath)
-    #     # gtpath = pname+'.jpg'
-    #     # if self.root is not None:
-    #     #     gtpath = osp.join(self.root, gtpath)
-
-    #     # gt_img = Image.open(gtpath).convert('RGB')
-    #     gt_img = img
-
-    #     img_name = osp.splitext(osp.split(fpath)[-1])[0]
-    #     pose_list = self.pose_dict[img_name]
-
-    #     landmark = self._load_landmark(pose_list, self.height/gt_img.size[1], self.width/gt_img.size[0])
-    #     maps = self._generate_pose_map(landmark)
-
-    #     flip_flag = random.choice([True, False])
-    #     if flip_flag:
-    #         gt_img = gt_img.transpose(Image.FLIP_LEFT_RIGHT)
-    #         maps = np.flip(maps,2)
-
-    #     maps = torch.from_numpy(maps.copy()).float()
-    #     if self.gan_transform_p is not None:
-    #         gt_img = self.gan_transform_p(gt_img)
-
-    #     return {'origin': gan_img, 'target': gt_img, 'posemap': maps, 'pid': torch.LongTensor([pid])}
-
-    # def _load_landmark(self, pose_list, scale_h, scale_w):
-    #     landmark = torch.tensor(pose_list) * torch.Tensor([scale_h, scale_w])
-    #     return landmark
-
-    # def _generate_pose_map(self, landmark, gauss_sigma=5):
-    #     maps = []
-    #     randnum = landmark.size(0)+1
-    #     if self.pose_aug=='erase':
-    #         randnum = random.randrange(landmark.size(0))
-    #     elif self.pose_aug=='gauss':
-    #         gauss_sigma = random.randint(gauss_sigma-1,gauss_sigma+1)
-    #     elif self.pose_aug!='no':
-    #         assert ('Unknown landmark augmentation method, choose from [no|erase|gauss]')
-    #     for i in range(landmark.size(0)):
-    #         map = np.zeros([self.height,self.width])
-    #         if landmark[i,0]!=-1 and landmark[i,1]!=-1 and i!=randnum:
-    #             map[landmark[i,0],landmark[i,1]]=1
-    #             map = ndimage.filters.gaussian_filter(map,sigma = gauss_sigma)
-    #             map = map/map.max()
-    #         maps.append(map)
-    #     maps = np.stack(maps, axis=0)
-    #     return maps

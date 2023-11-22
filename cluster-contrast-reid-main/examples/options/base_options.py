@@ -38,8 +38,8 @@ class BaseOptions():
         self.GAN_group.add_argument('--gan_train', action='store_true', help='if specified, train gan and use contrastive learning')
         self.GAN_group.add_argument('--use_adp', action='store_true', help='if specified, train adaptor for gan')
         self.CC_group.add_argument('--pooling-type', type=str, default='gem')
-        self.CC_group.add_argument('--use-hard', action="store_true")
-        self.CC_group.add_argument('--use-conf', action="store_true")
+        self.CC_group.add_argument('--use_hard', action="store_true")
+        self.CC_group.add_argument('--use_conf', action="store_true")
         self.parser.add_argument('--no-cam', action="store_true")
       
         # self.parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
@@ -97,6 +97,7 @@ class BaseOptions():
                             choices=datasets.names())
         self.parser.add_argument('-b', '--batch-size', type=int, default=2)
         self.parser.add_argument('-j', '--workers', type=int, default=4)
+        self.parser.add_argument('--bipath', action='store_true', help='bipath reid')
         self.CC_group.add_argument('--height', type=int, default=256, help="input height")
         self.CC_group.add_argument('--width', type=int, default=128, help="input width")
         self.CC_group.add_argument('--num-instances', type=int, default=4,

@@ -13,14 +13,18 @@ from .utils.rerank import re_ranking
 from .utils import to_torch
 
 
-def extract_cnn_feature(model, inputs):
+def extract_cnn_feature(model, inputs, clustering=False):
     inputs = to_torch(inputs).cuda()
-    outputs = model(inputs)
-    outputs = outputs.data.cpu()
+    if clustering:
+        outputs = model(inputs, clustering=clustering)
+        outputs = torch.stack(outputs, dim=1).cpu()
+    else:
+        outputs = model(inputs)
+        outputs = outputs.data.cpu()
     return outputs
 
 
-def extract_features(model, data_loader, print_freq=50):
+def extract_features(model, data_loader, print_freq=50, clustering=False):
     model.eval()
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -33,7 +37,7 @@ def extract_features(model, data_loader, print_freq=50):
         for i, (imgs, fnames, pids, _, _) in enumerate(data_loader):
             data_time.update(time.time() - end)
 
-            outputs = extract_cnn_feature(model, imgs)
+            outputs = extract_cnn_feature(model, imgs, clustering)
             for fname, output, pid in zip(fnames, outputs, pids):
                 features[fname] = output
                 labels[fname] = pid

@@ -5,7 +5,7 @@ from torch.nn import init
 import torchvision
 import torch
 from .pooling import build_pooling_layer
-
+from torch.nn.parameter import Parameter
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152']
@@ -21,13 +21,12 @@ class ResNet(nn.Module):
     }
 
     def __init__(self, depth, pretrained=True, cut_at_pooling=False,
-                 num_features=0, norm=False, dropout=0, num_classes=0, pooling_type='avg',
-                 need_predictor=False):
+                 num_features=0, norm=False, dropout=0, num_classes=0, pooling_type='avg'):
+        print('pooling_type: {}'.format(pooling_type))
         super(ResNet, self).__init__()
         self.pretrained = pretrained
         self.depth = depth
         self.cut_at_pooling = cut_at_pooling
-        self.need_predictor = need_predictor
         # Construct base (pretrained) resnet
         if depth not in ResNet.__factory:
             raise KeyError("Unsupported depth:", depth)
@@ -37,14 +36,6 @@ class ResNet(nn.Module):
         self.base = nn.Sequential(
             resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool,
             resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4)
-        
-        # resnet component
-        self.resnet_layer0 = nn.Sequential(
-            resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool)
-        self.resnet_layer1 = resnet.layer1
-        self.resnet_layer2 = resnet.layer2
-        self.resnet_layer3 = resnet.layer3
-        self.resnet_layer4 = resnet.layer4
 
         self.gap = build_pooling_layer(pooling_type)
 
@@ -73,29 +64,17 @@ class ResNet(nn.Module):
             if self.num_classes > 0:
                 self.classifier = nn.Linear(self.num_features, self.num_classes, bias=False)
                 init.normal_(self.classifier.weight, std=0.001)
-            if self.need_predictor:
-                print("build predictor for cl loss")
-                self._build_predictor_mlps(self.num_features, 2*self.num_features)
-
-            # self.fmap1 = nn.Conv2d(self.num_features//4, self.num_features//2, kernel_size=4, stride=2, padding=1)
-            # self.fmap2 = nn.Conv2d(self.num_features//2, self.num_features, kernel_size=1, stride=1, padding=0)        
-            self.fmap1 = nn.Conv2d(self.num_features//8, self.num_features//2, kernel_size=1, stride=1, padding=0)
-            self.fmap2 = nn.Conv2d(self.num_features//2, self.num_features, kernel_size=1, stride=1, padding=0)
-            init.kaiming_normal_(self.fmap1.weight, mode='fan_out')
-            init.kaiming_normal_(self.fmap2.weight, mode='fan_out')
-            init.constant_(self.fmap1.bias, 0)            
-            init.constant_(self.fmap2.bias, 0)
-
         init.constant_(self.feat_bn.weight, 1)
         init.constant_(self.feat_bn.bias, 0)
 
         if not pretrained:
             self.reset_params()
 
-    # @torch.cuda.amp.autocast()
     def forward(self, x):
         bs = x.size(0)
         x = self.base(x)
+
+        gan_x = x
 
         x = self.gap(x)
         x = x.view(x.size(0), -1)
@@ -123,67 +102,10 @@ class ResNet(nn.Module):
         if self.num_classes > 0:
             prob = self.classifier(bn_x)
         else:
-            return bn_x
+            return bn_x, F.normalize(gan_x, dim=1)
+            # return bn_x
 
         return prob
-    
-    # # @torch.cuda.amp.autocast()
-    # def forward_train(self, x, in_trainer=False):
-    #     bs = x.size(0)
-
-    #     x_0 = self.resnet_layer0(x)
-    #     x_1 = self.resnet_layer1(x_0)
-    #     x_2 = self.resnet_layer2(x_1)
-    #     x_3 = self.resnet_layer3(x_2)
-    #     x_4 = self.resnet_layer4(x_3)
-
-    #     # get feature map for synthesis
-    #     # f_map = x_4
-
-    #     x = self.gap(x_4)
-    #     x = x.view(x.size(0), -1)
-
-    #     if self.has_embedding:
-    #         bn_x = self.feat_bn(self.feat(x))
-    #     else:
-    #         bn_x = self.feat_bn(x)
-
-    #     # if (self.training is False) and (in_trainer is False):
-    #     #     bn_x = F.normalize(bn_x)
-    #     #     return bn_x
-
-    #     if self.norm:
-    #         bn_x = F.normalize(bn_x)
-    #     elif self.has_embedding:
-    #         bn_x = F.relu(bn_x)
-
-    #     if self.dropout > 0:
-    #         bn_x = self.drop(bn_x)
-
-    #     return x_0, x_1, x_2, x_3, x_4, bn_x
-    
-    def feature_mapping(self, F_g):
-        bs = F_g.size(0)
-        
-        x = self.fmap2(self.fmap1(F_g))
-
-        x = self.gap(x)
-        x = x.view(x.size(0), -1)
-
-        if self.has_embedding:
-            bn_x = self.feat_bn(self.feat(x))
-        else:
-            bn_x = self.feat_bn(x)
-
-        if self.norm:
-            bn_x = F.normalize(bn_x)
-        elif self.has_embedding:
-            bn_x = F.relu(bn_x)
-
-        if self.dropout > 0:
-            bn_x = self.drop(bn_x)
-
-        return bn_x
 
     def reset_params(self):
         for m in self.modules():
@@ -201,28 +123,6 @@ class ResNet(nn.Module):
                 init.normal_(m.weight, std=0.001)
                 if m.bias is not None:
                     init.constant_(m.bias, 0)
-
-    def _build_mlp(self, num_layers, input_dim, mlp_dim, output_dim, last_bn=True):
-        mlp = []
-        for l in range(num_layers):
-            dim1 = input_dim if l == 0 else mlp_dim
-            dim2 = output_dim if l == num_layers - 1 else mlp_dim
-
-            mlp.append(nn.Linear(dim1, dim2, bias=False))
-
-            if l < num_layers - 1:
-                mlp.append(nn.BatchNorm1d(dim2))
-                mlp.append(nn.ReLU(inplace=True))
-            elif last_bn:
-                # follow SimCLR's design: https://github.com/google-research/simclr/blob/master/model_util.py#L157
-                # for simplicity, we further removed gamma in BN
-                mlp.append(nn.BatchNorm1d(dim2, affine=False))
-
-        return nn.Sequential(*mlp)
-
-    def _build_predictor_mlps(self, dim, mlp_dim):
-        # predictor
-        self.predictor = self._build_mlp(2, dim, mlp_dim, dim, False)
 
 
 def resnet18(**kwargs):

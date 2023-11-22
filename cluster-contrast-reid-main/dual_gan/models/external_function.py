@@ -59,6 +59,7 @@ class GANLoss(nn.Module):
             if is_disc:
                 if target_is_real:
                     prediction = -prediction
+                    
                 if self.gan_mode == 'hinge':
                     loss = self.loss(1 + prediction).mean()
                 elif self.gan_mode == 'wgangp':

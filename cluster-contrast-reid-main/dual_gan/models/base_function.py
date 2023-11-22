@@ -270,6 +270,21 @@ class FeatureAdaptBlock(nn.Module):
     def forward(self, x):
         out = self.model(x)
         return out
+    
+class FeatureAdaptBlock1(nn.Module):
+    """
+        Define an Encoder block for the input reid features
+    """
+    def __init__(self, input_nc, output_nc, norm_layer=nn.BatchNorm2d, nonlinearity=nn.LeakyReLU()):
+        super(FeatureAdaptBlock1, self).__init__()
+
+        conv1 = nn.Conv2d(input_nc, output_nc, kernel_size=1)
+
+        self.model = nn.Sequential(conv1, norm_layer(output_nc), nonlinearity)
+
+    def forward(self, x):
+        out = self.model(x)
+        return out
 
 
 class EncoderBlock(nn.Module):
