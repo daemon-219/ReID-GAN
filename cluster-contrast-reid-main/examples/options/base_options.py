@@ -58,19 +58,6 @@ class BaseOptions():
         # self.parser.add_argument('--batchSize', type=int, default=1, help='input batch size')
         self.GAN_group.add_argument('--old_size', type=int, default=(128, 64), help='Scale images to this size. The final image will be cropped to --crop_size.')
         self.GAN_group.add_argument('--loadSize', type=int, default=128, help='scale images to this size')
-        # self.parser.add_argument('--fineSize', type=int, default=512, help='then crop to this size')
-        # self.parser.add_argument('--label_nc', type=int, default=35, help='# of input label channels')
-        # self.parser.add_argument('--input_nc', type=int, default=3, help='# of input image channels')
-        # self.parser.add_argument('--output_nc', type=int, default=3, help='# of output image channels')
-
-        # for setting inputs
-        # self.parser.add_argument('--dataset_mode', type=str, default='fashion')
-        # self.parser.add_argument('--dataroot', type=str, default='/media/data2/zhangpz/DataSet/Fashion')
-        # self.parser.add_argument('--resize_or_crop', type=str, default='scale_width', help='scaling and cropping of images at load time [resize_and_crop|crop|scale_width|scale_width_and_crop]')
-        # self.parser.add_argument('--serial_batches', action='store_true', help='if true, takes images in order to make batches, otherwise takes them randomly')        
-        # self.parser.add_argument('--no_flip', action='store_true', help='if specified, do not flip the images for data argumentation') 
-        # self.parser.add_argument('--nThreads', default=2, type=int, help='# threads for loading data')                
-        # self.parser.add_argument('--max_dataset_size', type=int, default=float("inf"), help='Maximum number of samples allowed per dataset. If the dataset directory contains more than max_dataset_size, only a subset is loaded.')
 
         # for displays
         self.GAN_group.add_argument('--display_winsize', type=int, default=512,  help='display window size')

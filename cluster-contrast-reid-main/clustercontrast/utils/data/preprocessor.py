@@ -53,13 +53,14 @@ class Preprocessor(Dataset):
                 #  pose_aug='no', 
                  transform=None, 
                 #  gan_transform=None, 
-                #  gan_transform_p=None,
+                 flip_all = False,
                  GAN_transform=None):
         
         super(Preprocessor, self).__init__()
         self.dataset = dataset
         self.root = root
         self.transform = transform
+        self.flip_all = flip_all
 
         self.only_gan = only_gan
         self.with_gan = with_gan
@@ -96,8 +97,7 @@ class Preprocessor(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, indices):
-        self.flip = torch.rand(1) < 0.5
-        # self.flip = False
+        self.flip = torch.rand(1) < 0.5 if self.flip_all else False
         if self.only_gan:
             return self._get_single_gan_item(indices)
         elif self.with_gan:
@@ -134,14 +134,15 @@ class Preprocessor(Dataset):
         if self.flip:
             img = torch.flip(img, [2])
 
-        return [img, fname, pid, camid, index], self.get_DPTN_input(fname, pid, flip=self.flip)    
+        return [img, fname, pid, camid, index], self.get_gan_input(fname, pid, flip=self.flip)    
     
     def _get_single_gan_item(self, index):
         fname, pid, camid = self.dataset[index]
 
-        return self.get_DPTN_input(fname, pid, flip=self.flip)
+        # return self.get_gan_input(fname, pid, flip=self.flip)
+        return self.get_gan_input(fname, pid, flip=self.flip), pid, index
     
-    def get_DPTN_input(self, fname, pid, flip=False):
+    def get_gan_input(self, fname, pid, flip=False):
         fpath = fname
         if self.root is not None:
             fpath = osp.join(self.root, fname)
@@ -162,6 +163,8 @@ class Preprocessor(Dataset):
         # Xt = Xs.transpose(Image.FLIP_LEFT_RIGHT)
         # Pt = torch.flip(Ps, [2])
 
+        old_size = (Xs.size[1], Xs.size[0])
+        # print(old_size)
         Xs = F.resize(Xs, self.load_size)
         # Xt = F.resize(Xt, self.load_size)
 
@@ -172,7 +175,7 @@ class Preprocessor(Dataset):
         gt_label = int(Xs_name.split('_', 1)[0])
 
         if self.with_pose:
-            Ps = self.obtain_bone(Xs_name)
+            Ps = self.obtain_bone(Xs_name, old_size)
             
             if flip: 
                 Ps = torch.flip(Ps, [2])
@@ -187,10 +190,10 @@ class Preprocessor(Dataset):
         
         return {'Xs': Xs, 'Xs_path': Xs_name, 'gt_label': gt_label}
     
-    def obtain_bone(self, name):
+    def obtain_bone(self, name, old_size):
         string = self.annotation_file.loc[name]
         array = load_pose_cords_from_strings(string['keypoints_y'], string['keypoints_x'])
-        pose = cords_to_map(array, self.load_size, (128, 64))
+        pose = cords_to_map(array, self.load_size, old_size)
         pose = np.transpose(pose,(2, 0, 1))
         pose = torch.Tensor(pose)
         return pose

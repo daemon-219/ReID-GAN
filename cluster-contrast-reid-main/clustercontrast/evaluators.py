@@ -13,34 +13,45 @@ from .utils.rerank import re_ranking
 from .utils import to_torch
 
 
-def extract_cnn_feature(model, inputs, clustering=False):
+def extract_cnn_feature(model, inputs):
     inputs = to_torch(inputs).cuda()
-    if clustering:
-        outputs = model(inputs, clustering=clustering)
-        outputs = torch.stack(outputs, dim=1).cpu()
-    else:
-        outputs = model(inputs)
-        outputs = outputs.data.cpu()
+    outputs = model(inputs)
+    outputs = outputs.data.cpu()
     return outputs
 
+def extract_all_feature(model, inputs):
+    inputs = to_torch(inputs).cuda()
+    outputs, extra_outputs = model(inputs, test_all=True)
+    outputs = outputs.data.cpu()
+    extra_outputs = extra_outputs.data.cpu()
+    return outputs, extra_outputs
 
-def extract_features(model, data_loader, print_freq=50, clustering=False):
+
+def extract_features(model, data_loader, print_freq=50, extra_features=False):
     model.eval()
     batch_time = AverageMeter()
     data_time = AverageMeter()
 
     features = OrderedDict()
     labels = OrderedDict()
+    if extra_features:
+        gan_features = OrderedDict()
 
     end = time.time()
     with torch.no_grad():
         for i, (imgs, fnames, pids, _, _) in enumerate(data_loader):
             data_time.update(time.time() - end)
-
-            outputs = extract_cnn_feature(model, imgs, clustering)
-            for fname, output, pid in zip(fnames, outputs, pids):
-                features[fname] = output
-                labels[fname] = pid
+            if extra_features:
+                outputs, extra_outputs = extract_all_feature(model, imgs)
+                for fname, output, extra_output, pid in zip(fnames, outputs, extra_outputs, pids):
+                    features[fname] = output
+                    gan_features[fname] = extra_output
+                    labels[fname] = pid
+            else:
+                outputs = extract_cnn_feature(model, imgs)
+                for fname, output, pid in zip(fnames, outputs, pids):
+                    features[fname] = output
+                    labels[fname] = pid
 
             batch_time.update(time.time() - end)
             end = time.time()
@@ -52,7 +63,8 @@ def extract_features(model, data_loader, print_freq=50, clustering=False):
                       .format(i + 1, len(data_loader),
                               batch_time.val, batch_time.avg,
                               data_time.val, data_time.avg))
-
+    if extra_features:
+        return features, gan_features, labels
     return features, labels
 
 

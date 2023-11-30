@@ -67,6 +67,8 @@ class TrainOptions(BaseOptions):
         self.AL_group.add_argument('--cl_loss', action='store_true', 
                                    help='if specified, train reid with added cl')
         self.AL_group.add_argument('--learnable_memory', action='store_true', 
+                                   help='if specified, get gan features for clusters when clustering')
+        self.AL_group.add_argument('--cluster_with_gan_features', action='store_true', 
                                    help='if specified, train reid with learnable memory')
         self.AL_group.add_argument('--cluster_lr', type=float, default=0.00035,
                                    help="learning rate for cluster memory")

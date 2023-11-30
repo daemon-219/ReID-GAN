@@ -375,6 +375,20 @@ class AEModel(BaseModel):
             self.loss_G = self.loss_app_gen.mean() + self.loss_ad_gen.mean() 
             return self.loss_G
         
+    def get_L1_loss(self, with_dis=False):
+        if with_dis:
+            base_function._unfreeze(self.net_D)
+            loss_app_gen, loss_ad_gen, _, _ = self.backward_G_basic(self.fake_image, self.source_image, use_d=True)
+            loss_rec = loss_app_gen.flatten(1).mean(dim=-1)
+            loss_dis = loss_ad_gen.flatten(1).mean(dim=-1)
+            # print(loss_rec.mean())
+            # print(loss_dis.mean())
+            return loss_rec + loss_dis
+        else:
+            loss_app_gen = self.L1loss(self.fake_image, self.source_image)
+            loss_rec = loss_app_gen.flatten(1).mean(dim=-1)
+            return loss_rec
+        
     def optimize_parameters(self):
         self.forward()
 

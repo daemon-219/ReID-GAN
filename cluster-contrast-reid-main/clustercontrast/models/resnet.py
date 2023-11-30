@@ -70,7 +70,7 @@ class ResNet(nn.Module):
         if not pretrained:
             self.reset_params()
 
-    def forward(self, x):
+    def forward(self, x, test_all=False):
         bs = x.size(0)
         x = self.base(x)
 
@@ -89,6 +89,8 @@ class ResNet(nn.Module):
 
         if (self.training is False):
             bn_x = F.normalize(bn_x)
+            if test_all:
+                return bn_x, F.normalize(gan_x, dim=1) 
             return bn_x
 
         if self.norm:

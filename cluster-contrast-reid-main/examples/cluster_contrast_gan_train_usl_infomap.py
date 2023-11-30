@@ -125,8 +125,7 @@ def get_train_loader(opt, dataset, height, width, batch_size, workers,
         if no_cam:
             sampler = RandomMultipleGallerySamplerNoCam(train_set, num_instances)
         else:
-            sampler = RandomMultipleGallerySampler(train_set, num_instances)
-            
+            sampler = RandomMultipleGallerySampler(train_set, num_instances)      
     else:
         sampler = None
     
@@ -134,7 +133,8 @@ def get_train_loader(opt, dataset, height, width, batch_size, workers,
         DataLoader(Preprocessor(train_set, root=dataset.images_dir,
                                 pose_file=dataset.train_pose_dir if hasattr(dataset, 'train_pose_dir') else None, 
                                 with_gan=with_gan, load_size=opt.loadSize,
-                                transform=train_transformer, GAN_transform=GAN_transform),
+                                transform=train_transformer, flip_all=True, 
+                                GAN_transform=GAN_transform),
                    batch_size=batch_size, num_workers=workers, sampler=sampler,
                    shuffle=not rmgs_flag, pin_memory=True, drop_last=True), length=iters)
     return train_loader
@@ -165,9 +165,13 @@ def get_test_loader(dataset, height, width, batch_size, workers, with_gan=False,
 
 def get_gan_loader(opt, dataset, height, width, batch_size, workers, only_gan=True, testset=None):
 
+    normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
+
     GAN_transform = T.Compose([
         T.ToTensor(),
         T.Normalize((0.5, 0.5, 0.5),(0.5, 0.5, 0.5))
+        # normalizer
     ])
 
     if testset is None:
@@ -302,12 +306,16 @@ def main_worker(opt):
             cluster_loader = get_test_loader(dataset, opt.height, opt.width,
                                              opt.batch_size, opt.workers, testset=sorted(dataset.train))
 
-            features, _ = extract_features(ReID_model, cluster_loader, print_freq=50)
-            # all_features, _ = extract_features(ReID_model, cluster_loader, print_freq=50, clustering=True)
+            if opt.cluster_with_gan_features:
+                features, gan_features, _ = extract_features(ReID_model, cluster_loader, print_freq=50, extra_features=True)
+            else:
+                features, _ = extract_features(ReID_model, cluster_loader, print_freq=50)
+            
             # cluster by features, with multiple groups of clusters
             features = torch.cat([features[f].unsqueeze(0) for f, _, _ in sorted(dataset.train)], 0)
-            # features = torch.cat([all_features[f][0].unsqueeze(0) for f, _, _ in sorted(dataset.train)], 0)
-            # features1 = torch.cat([features[f][1].unsqueeze(0) for f, _, _ in sorted(dataset.train)], 0)
+            if opt.cluster_with_gan_features:
+                gan_features = torch.cat([gan_features[f].unsqueeze(0) for f, _, _ in sorted(dataset.train)], 0)
+                print(gan_features.shape)
 
             features_array = F.normalize(features, dim=1).cpu().numpy()
             feat_dists, feat_nbrs = get_dist_nbr(features=features_array, k=opt.k1, knn_method='faiss-gpu')
@@ -338,10 +346,13 @@ def main_worker(opt):
             return centers
 
         cluster_features = generate_cluster_features(pseudo_labels, features)
-        # cluster_features1 = generate_cluster_features(pseudo_labels, features1)
+        if opt.cluster_with_gan_features:
+            cluster_gan_features = generate_cluster_features(pseudo_labels, gan_features)
+            print(cluster_gan_features.shape)
 
         del cluster_loader, features
-        # del cluster_loader, all_features, features, features1
+        if opt.cluster_with_gan_features:
+            del gan_features
 
         # Create hybrid memory
         if opt.learnable_memory:
@@ -355,6 +366,8 @@ def main_worker(opt):
             memory = ClusterMemory(ReID_model.module.num_features, num_cluster, temp=opt.temp,
                                momentum=opt.momentum, use_hard=opt.use_hard, use_conf=opt.use_conf).cuda()
             memory.features = F.normalize(cluster_features, dim=1).cuda()
+            if opt.cluster_with_gan_features:
+                memory.gan_features = F.normalize(cluster_gan_features, dim=1).cuda()
             # memory.features1 = F.normalize(cluster_features1, dim=1).cuda()
         
         trainer.memory = memory
@@ -375,7 +388,8 @@ def main_worker(opt):
             s = time.time()
 
             conf_weight = torch.ones(len(pseudo_labeled_dataset)).cuda()
-            print(conf_weight.shape)
+            rec_list = torch.zeros(len(pseudo_labeled_dataset)).cuda()
+            print("num samples:", conf_weight.shape)
             # labels = OrderedDict()
             
             for i, (gan_inputs, pid, index) in enumerate(gan_loader):
@@ -383,6 +397,7 @@ def main_worker(opt):
                 GAN_model.set_input(gan_inputs)
                 GAN_model.synthesize_p(clusters[pid])
                 loss_rec = GAN_model.get_L1_loss()
+                rec_list[index] = loss_rec
                 # print(loss_rec.shape)
                 # loss_rec = GAN_model.get_loss_G(need_cm=False)
                 # print(loss_rec)
@@ -394,8 +409,17 @@ def main_worker(opt):
                 # conf_weight[index] = 2 * torch.exp(-2 * loss_rec)
                 # 1e^{-x^{2}}
                 # conf_weight[index] = torch.exp(-torch.pow(loss_rec, 2))
-                conf_weight[index] = torch.exp(-4 * torch.pow(loss_rec, 4))
-                # print(conf_weight[index])
+                # conf_weight[index] = torch.exp(-4 * torch.pow(loss_rec, 4))
+                # print(loss_rec)
+            
+            # block_num = rec_list.shape[0] // 50
+            block_num = rec_list.shape[0] // opt.num_instances
+            # block_num = block_num // (epoch // 5 + 1)
+
+            _, blocked_ids = torch.topk(rec_list, block_num)
+            print("blocked num", blocked_ids.shape)
+            # print(rec_list[blocked_ids])
+            conf_weight[blocked_ids] = 0
 
             print('calculate confidence weight cost time: {}'.format(time.time() - s))
 
@@ -405,6 +429,11 @@ def main_worker(opt):
 
         conf_weight = None
         # conf_weight = get_conf_weight(memory.features)
+        if opt.cluster_with_gan_features:
+            conf_weight = torch.ones(len(pseudo_labeled_dataset)).cuda()
+            # conf_weight = get_conf_weight(memory.gan_features)
+            # conf_weight = get_conf_weight(F.normalize(cluster_gan_features, dim=1).cuda())
+            # del cluster_gan_features
 
         # train_loader = get_train_loader(opt, dataset, opt.height, opt.width,
         #                                 opt.batch_size, opt.workers, opt.num_instances, iters,
@@ -479,8 +508,8 @@ def main_worker(opt):
                     # visualize gan results 
                     # GAN_model.visual_names = ['source_image', 'target_image', 'fake_image', 'fake_image_n', 'mixed_image']
                     # GAN_model.visual_names = ['source_image', 'fake_image', 'mixed_image']
-                    GAN_model.visual_names = ['source_image', 'fake_image']
-                    # GAN_model.visual_names = []
+                    # GAN_model.visual_names = ['source_image', 'fake_image']
+                    GAN_model.visual_names = []
                     visualizer.display_current_results(GAN_model.get_current_visuals(), epoch)
                     if hasattr(GAN_model, 'distribution'):
                         visualizer.plot_current_distribution(GAN_model.get_current_dis())
